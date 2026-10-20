@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家庭財務報表</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --card:#ffffff; --ink:#1f2933; --muted:#6b7785; --line:#d9e0e8;
+    --brand:#1f4e78; --brand-ink:#ffffff; --green:#e2efda; --blue:#ddebf7; --red:#fce4d6; --warn:#fff2cc;
+    --neg:#b42318; --ok:#1a7f37;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#14181d; --card:#1c222a; --ink:#e6eaef; --muted:#9aa5b1; --line:#2d3641;
+      --brand:#5b9bd5; --brand-ink:#0b1722; --green:#23352a; --blue:#1d2c3b; --red:#3b2a22; --warn:#3a3320; --neg:#ff8a80; --ok:#6fcf97; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif}
+  header{background:var(--brand);color:var(--brand-ink);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  header h1{margin:0;font-size:18px}
+  header button{background:transparent;border:1px solid currentColor;color:inherit;border-radius:6px;padding:4px 10px;cursor:pointer}
+  nav{display:flex;gap:4px;padding:8px 16px 0;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--line)}
+  nav button{border:0;background:none;color:var(--muted);padding:10px 14px;font-size:15px;cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
+  nav button.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:700}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  section{display:none} section.on{display:block}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  .card h2{margin:0 0 10px;font-size:16px}
+  .scroll{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;min-width:560px}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+  th{font-weight:700;font-size:13px;color:var(--muted)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  input,select{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;min-width:80px}
+  input[type=number]{text-align:right}
+  td.sec{background:var(--brand);color:var(--brand-ink);font-weight:700}
+  td.tot{background:var(--blue);font-weight:700}
+  td.lab{position:sticky;left:0;background:var(--card);min-width:220px;z-index:1}
+  .row-a td{background:var(--green)} .row-l td{background:var(--red)} .row-f td{background:var(--blue)}
+  .btn{background:var(--brand);color:var(--brand-ink);border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--brand);border:1px solid var(--brand);font-weight:400}
+  .btn.small{padding:4px 10px;font-size:13px}
+  .btn:disabled{opacity:.5;cursor:wait}
+  .x{background:none;border:0;color:var(--neg);cursor:pointer;font-size:18px;line-height:1}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
+  .note{color:var(--muted);font-size:13px}
+  .warn{background:var(--warn);border-radius:6px;padding:6px 10px;margin:8px 0;font-size:14px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .tile .k{color:var(--muted);font-size:12px} .tile .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+  .neg{color:var(--neg)} .pos{color:var(--ok)}
+  .badge{font-size:12px;border-radius:10px;padding:1px 8px;background:var(--green)}
+  .badge.est{background:var(--warn)}
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:8px;display:none;max-width:90vw;z-index:20}
+  #toast.err{background:#b42318}
+  dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);width:min(460px,92vw)}
+  dialog label{display:block;margin:10px 0 4px;font-weight:700}
+  canvas{max-height:320px}
+</style>
+</head>
+<body>
+<header>
+  <h1>家庭財務報表</h1>
+  <button id="btnSettings" type="button">設定</button>
+</header>
+<nav id="tabs">
+  <button data-tab="entry" class="on" type="button">填報</button>
+  <button data-tab="report" type="button">月報</button>
+  <button data-tab="owners" type="button">負責人現況</button>
+  <button data-tab="statements" type="button">三表</button>
+  <button data-tab="future" type="button">計算未來</button>
+</nav>
+<main>
+
+<section id="tab-entry" class="on">
+  <div class="card">
+    <div class="bar">
+      <label for="entryDate"><b>當天日期</b></label>
+      <input id="entryDate" type="date" style="width:auto">
+      <span class="note" id="dateInfo"></span>
+    </div>
+    <div id="dateWarn" class="warn" hidden>此日期已有快照，送出後會覆蓋當天整批資料。</div>
+
+    <h2>現有資產</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>負責人</th><th>性質</th><th>標的</th><th class="num">資產</th><th class="num">成本（選填）</th><th></th></tr></thead>
+      <tbody id="assetBody"></tbody>
+    </table></div>
+    <div class="bar"><button class="btn ghost small" id="addAsset" type="button">＋ 新增資產（以下可新增）</button></div>
+
+    <h2>現有負債</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>負責人</th><th>性質</th><th>標的</th><th class="num">金額（填正數）</th><th></th></tr></thead>
+      <tbody id="liabBody"></tbody>
+    </table></div>
+    <div class="bar"><button class="btn ghost small" id="addLiab" type="button">＋ 新增負債（以下可新增）</button></div>
+
+    <div class="bar">
+      <button class="btn" id="btnSubmit" type="button">送出填報</button>
+      <span class="note">灰色提示字是上次填的數字；每列都要填入本次金額，不用的列請按 × 刪除。</span>
+    </div>
+  </div>
+</section>
+
+<section id="tab-report">
+  <div class="bar">
+    <button class="btn small" id="btnReload" type="button">重新整理</button>
+    <label class="note">從 <select id="fromYear" style="width:auto;min-width:0"><option value="">全部</option></select> 起</label>
+    <span class="note" id="reportInfo"></span>
+  </div>
+  <div class="tiles" id="tiles"></div>
+  <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas></div>
+  <div class="card"><h2>月報表</h2><div class="scroll"><table id="monthTable"></table></div>
+    <p class="note">收入與支出，歷史取自原表實績，之後依「計算未來」展開。預估月份的資產與負債為空白。</p></div>
+</section>
+
+<section id="tab-owners">
+  <div class="card">
+    <h2>負責人現況（最新快照）</h2>
+    <p class="note" id="ownerDates"></p>
+    <div class="scroll"><table id="ownerTable"></table></div>
+    <p class="note">共同帳戶分攤後淨值：「雙方」的資產與負債依試算表「設定」的比例分給兩人。</p>
+  </div>
+</section>
+
+<section id="tab-statements">
+  <div class="bar">
+    <select id="stmtSel" style="width:auto">
+      <option value="balanceSheet">資產負債表</option>
+      <option value="incomeStatement">損益表</option>
+      <option value="cashFlow">現金流量表</option>
+    </select>
+    <select id="stmtRange" style="width:auto">
+      <option value="recent">近 12 個月（含預估）</option>
+      <option value="all">全部</option>
+    </select>
+    <button class="btn small" id="btnStmtReload" type="button">重新整理</button>
+    <span class="note" id="stmtInfo"></span>
+  </div>
+  <div class="card">
+    <div class="scroll"><table id="stmtTable"></table></div>
+    <p class="note" id="stmtNote"></p>
+  </div>
+</section>
+
+<section id="tab-future">
+  <div class="card">
+    <h2>計算未來（收入與支出）</h2>
+    <p class="note">週期寫法：<b>每月</b>、<b>每年4月</b>、<b>單次2027/9</b>。金額一律填正數，由類別決定收入或支出。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>負責人</th><th>類別</th><th>性質</th><th>標的</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
+      <tbody id="futBody"></tbody>
+    </table></div>
+    <div class="bar">
+      <button class="btn ghost small" id="addFut" type="button">＋ 新增一列（以下可新增）</button>
+      <button class="btn" id="saveFut" type="button">儲存</button>
+      <span class="note">儲存會整份取代試算表「未來」分頁的 A 到 F 欄。</span>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="cfgForm">
+    <h2 style="margin-top:0">後端設定</h2>
+    <p class="note">這兩項只存在這台裝置的瀏覽器，不會上傳到 GitHub。</p>
+    <label for="cfgUrl">Apps Script 網址（/exec 結尾）</label>
+    <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
+    <label for="cfgToken">通行碼（後端有設才填）</label>
+    <input id="cfgToken" type="password" autocomplete="off">
+    <div class="bar">
+      <button class="btn" id="cfgSave" value="save" type="submit">儲存</button>
+      <button class="btn ghost" id="cfgTest" type="button">測試連線</button>
+      <button class="btn ghost" value="cancel" type="submit" formnovalidate>關閉</button>
+    </div>
+    <div id="cfgMsg" class="note"></div>
+  </form>
+</dialog>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+'use strict';
+const OWNERS = ['倪端','葉芳瑜','雙方'];
+const ASSET_KINDS = ['股票','銀行','不動產','共同帳戶','其他'];
+const LIAB_KINDS = ['貸款','其他'];
+const FUT_OWNERS = ['倪端','葉芳瑜','兩人'];
+const INCOME_KINDS = ['月薪','獎金','股利','其他收入'];
+const EXPENSE_KINDS = ['固定支出','其他支出'];
+const PERIOD_RE = /^(每月|每年(1[0-2]|[1-9])月|單次\d{4}\/(0?[1-9]|1[0-2]))$/;
+const L = {net:'淨值（總資產－總負債）', proj:'預估淨值（月底）', assets:'總資產', debt:'總負債', delta:'淨值月增減',
+           inc:'收入', fix:'固定支出', oth:'其他支出', flow:'淨現金流', cash:'現金可支應月數（銀行＋共同帳戶）', status:'狀態'};
+const CFG_KEY = 'family-finance-cfg';
+
+/* ---------- 小工具 ---------- */
+function h(tag, props, ...kids){
+  const e = document.createElement(tag);
+  if (props) for (const k in props){
+    if (k === 'class') e.className = props[k];
+    else if (k === 'text') e.textContent = props[k];
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), props[k]);
+    else if (props[k] !== false && props[k] != null) e.setAttribute(k, props[k]);
+  }
+  for (const c of kids.flat()) if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return e;
+}
+const $ = id => document.getElementById(id);
+function money(v){
+  if (v === null || v === undefined || v === '') return '–';
+  if (typeof v !== 'number') return String(v);
+  const n = Math.round(v);
+  return n < 0 ? '(' + Math.abs(n).toLocaleString('en-US') + ')' : n.toLocaleString('en-US');
+}
+function pct(v){ return typeof v === 'number' ? (v*100).toFixed(1) + '%' : (v ?? '–'); }
+function toast(msg, isErr){
+  const t = $('toast'); t.textContent = msg; t.className = isErr ? 'err' : ''; t.style.display = 'block';
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', isErr ? 6000 : 2800);
+}
+function select(options, value){
+  const s = h('select');
+  options.forEach(o => s.append(h('option', {value:o, text:o})));
+  if (value && options.includes(value)) s.value = value;
+  return s;
+}
+function today(){ return new Date().toLocaleDateString('sv-SE'); } // yyyy-mm-dd（本地時區）
+
+/* ---------- 設定與 API ---------- */
+function loadCfg(){ try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch(e){ return {}; } }
+function saveCfg(c){ try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch(e){ toast('瀏覽器不允許儲存設定', true); } }
+
+async function api(action, payload, cfgOverride){
+  const cfg = cfgOverride || loadCfg();
+  if (!cfg.url) { openSettings(); throw new Error('請先設定後端網址'); }
+  let res;
+  if (payload === undefined){
+    const u = new URL(cfg.url); u.searchParams.set('action', action);
+    if (cfg.token) u.searchParams.set('token', cfg.token);
+    res = await fetch(u.toString());
+  } else {
+    res = await fetch(cfg.url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify(Object.assign({action, token: cfg.token || ''}, payload)) });
+  }
+  let j;
+  try { j = await res.json(); } catch(e){ throw new Error('後端沒有回傳 JSON，請確認網址與部署權限（存取權＝所有人）'); }
+  if (!j.ok) throw new Error(j.error || '後端回報失敗');
+  return j.data;
+}
+
+function openSettings(){
+  const c = loadCfg(); $('cfgUrl').value = c.url || ''; $('cfgToken').value = c.token || ''; $('cfgMsg').textContent = '';
+  if (!$('dlg').open) $('dlg').showModal();
+}
+$('btnSettings').onclick = openSettings;
+$('cfgForm').addEventListener('submit', ev => {
+  if (ev.submitter && ev.submitter.value === 'save'){
+    saveCfg({url: $('cfgUrl').value.trim(), token: $('cfgToken').value});
+    toast('已儲存設定'); init(true);
+  }
+});
+$('cfgTest').onclick = async () => {
+  $('cfgMsg').textContent = '測試中…';
+  try { await api('ping', undefined, {url: $('cfgUrl').value.trim(), token: $('cfgToken').value}); $('cfgMsg').textContent = '連線成功'; }
+  catch(e){ $('cfgMsg').textContent = '失敗：' + e.message; }
+};
+
+/* ---------- 分頁 ---------- */
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(name){
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
+  if (name === 'report' && !state.report) loadReport();
+  if (name === 'owners' && !state.report) loadReport();
+  if (name === 'statements' && !state.stmts) loadStatements();
+  if (name === 'future' && !state.futureLoaded) loadFuture();
+}
+
+const state = { dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
+
+/* ---------- 填報 ---------- */
+const DEFAULT_ASSETS = [
+  {owner:'葉芳瑜', kind:'股票', name:'0050'}, {owner:'倪端', kind:'銀行', name:'元大銀行'},
+  {owner:'倪端', kind:'不動產', name:'金門第三期'}, {owner:'倪端', kind:'不動產', name:'威均川玥'} ];
+const DEFAULT_LIABS = [ {owner:'倪端', kind:'貸款', name:'信用貸款'} ];
+
+function numInput(prev){
+  const i = h('input', {type:'number', step:'any', inputmode:'decimal'});
+  if (prev !== null && prev !== undefined && prev !== '') i.placeholder = money(prev);
+  return i;
+}
+function addAssetRow(d = {}){
+  const tr = h('tr', {class:'row-a'});
+  const name = h('input', {type:'text', list:'names', value:d.name || '', placeholder:'標的'});
+  tr.append(h('td',null,select(OWNERS, d.owner)), h('td',null,select(ASSET_KINDS, d.kind)), h('td',null,name),
+    h('td',null,numInput(d.amount)), h('td',null,numInput(d.cost)),
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
+  $('assetBody').append(tr);
+}
+function addLiabRow(d = {}){
+  const tr = h('tr', {class:'row-l'});
+  const name = h('input', {type:'text', list:'names', value:d.name || '', placeholder:'標的'});
+  tr.append(h('td',null,select(OWNERS, d.owner)), h('td',null,select(LIAB_KINDS, d.kind)), h('td',null,name),
+    h('td',null,numInput(d.amount)),
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
+  $('liabBody').append(tr);
+}
+$('addAsset').onclick = () => addAssetRow();
+$('addLiab').onclick = () => addLiabRow();
+
+function ensureDatalist(){
+  let dl = $('names');
+  if (!dl){ dl = h('datalist', {id:'names'}); document.body.append(dl); }
+  dl.replaceChildren(...[...state.names].map(n => h('option', {value:n})));
+}
+
+async function loadEntry(){
+  $('entryDate').value = $('entryDate').value || today();
+  $('assetBody').replaceChildren(); $('liabBody').replaceChildren();
+  let latest = null;
+  try { latest = await api('getLatest'); } catch(e){ toast(e.message, true); }
+  const assets = latest && latest.assets.length ? latest.assets : DEFAULT_ASSETS;
+  const liabs = latest && latest.liabilities.length ? latest.liabilities : DEFAULT_LIABS;
+  state.dates = latest ? latest.dates : [];
+  [...assets, ...liabs].forEach(x => state.names.add(x.name)); ensureDatalist();
+  assets.forEach(a => addAssetRow(a));
+  liabs.forEach(l => addLiabRow(l));
+  $('dateInfo').textContent = latest && latest.assetDate ? '上次填報：' + latest.assetDate : '尚無歷史快照';
+  checkDate();
+}
+function checkDate(){
+  const d = $('entryDate').value.replaceAll('-', '/');
+  $('dateWarn').hidden = !state.dates.includes(d);
+}
+$('entryDate').addEventListener('change', checkDate);
+
+function readRows(body, withCost){
+  const out = [];
+  for (const tr of body.querySelectorAll('tr')){
+    const c = tr.querySelectorAll('select,input');
+    const row = { owner:c[0].value, kind:c[1].value, name:c[2].value.trim(), amount:c[3].value };
+    if (withCost) row.cost = c[4].value;
+    out.push(row);
+  }
+  return out;
+}
+$('btnSubmit').onclick = async () => {
+  const date = $('entryDate').value.replaceAll('-', '/');
+  if (!date) return toast('請選擇日期', true);
+  const assets = readRows($('assetBody'), true), liabs = readRows($('liabBody'), false);
+  if (!assets.length) return toast('至少需要一筆資產', true);
+  for (const [i, r] of assets.entries()){
+    if (!r.name) return toast(`資產第 ${i+1} 列：請填標的`, true);
+    if (r.amount === '' || isNaN(Number(r.amount))) return toast(`資產第 ${i+1} 列（${r.name}）：請填入本次金額，不用的列請刪除`, true);
+  }
+  for (const [i, r] of liabs.entries()){
+    if (!r.name) return toast(`負債第 ${i+1} 列：請填標的`, true);
+    if (r.amount === '' || isNaN(Number(r.amount))) return toast(`負債第 ${i+1} 列（${r.name}）：請填入本次金額，不用的列請刪除`, true);
+    if (Number(r.amount) < 0) return toast(`負債第 ${i+1} 列：金額請填正數`, true);
+  }
+  if (state.dates.includes(date) && !confirm(`${date} 已有快照，要覆蓋嗎？`)) return;
+  const b = $('btnSubmit'); b.disabled = true;
+  try {
+    const r = await api('submit', {date, assets, liabilities: liabs});
+    toast(`已寫入 ${r.date}：資產 ${r.assetRows} 列、負債 ${r.liabilityRows} 列`);
+    state.report = null; state.stmts = null; await loadEntry();
+  } catch(e){ toast(e.message, true); }
+  finally { b.disabled = false; }
+};
+
+/* ---------- 計算未來 ---------- */
+function addFutRow(d = {}){
+  const type = select(['收入','支出'], d.type);
+  const kind = select(type.value === '收入' ? INCOME_KINDS : EXPENSE_KINDS, d.kind);
+  type.onchange = () => { kind.replaceChildren(...(type.value === '收入' ? INCOME_KINDS : EXPENSE_KINDS).map(o => h('option',{value:o,text:o}))); };
+  const period = h('input', {type:'text', value:d.period || '', placeholder:'每月／每年4月／單次2027/9', list:'periods'});
+  const tr = h('tr', {class:'row-f'});
+  tr.append(h('td',null,select(FUT_OWNERS, d.owner)), h('td',null,type), h('td',null,kind),
+    h('td',null,h('input',{type:'text',value:d.name || '',placeholder:'標的'})), h('td',null,period),
+    h('td',null,h('input',{type:'number',step:'any',inputmode:'decimal',value:d.amount ?? ''})),
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
+  $('futBody').append(tr);
+}
+(function(){ const dl = h('datalist',{id:'periods'}); ['每月','每年4月','每年12月','單次2027/9'].forEach(v => dl.append(h('option',{value:v}))); document.body.append(dl); })();
+$('addFut').onclick = () => addFutRow();
+async function loadFuture(){
+  try {
+    const rows = await api('getFuture');
+    $('futBody').replaceChildren(); rows.forEach(addFutRow); state.futureLoaded = true;
+  } catch(e){ toast(e.message, true); }
+}
+$('saveFut').onclick = async () => {
+  const rows = [];
+  for (const tr of $('futBody').querySelectorAll('tr')){
+    const c = tr.querySelectorAll('select,input');
+    rows.push({owner:c[0].value, type:c[1].value, kind:c[2].value, name:c[3].value.trim(), period:c[4].value.trim(), amount:c[5].value});
+  }
+  for (const [i, r] of rows.entries()){
+    if (!r.name) return toast(`第 ${i+1} 列：請填標的`, true);
+    if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期請寫「每月」「每年4月」或「單次2027/9」`, true);
+    if (r.amount === '' || isNaN(Number(r.amount)) || Number(r.amount) < 0) return toast(`第 ${i+1} 列：金額請填正數`, true);
+  }
+  const b = $('saveFut'); b.disabled = true;
+  try { const r = await api('saveFuture', {rows}); toast(`已儲存 ${r.saved} 列`); state.report = null; state.stmts = null; }
+  catch(e){ toast(e.message, true); }
+  finally { b.disabled = false; }
+};
+
+/* ---------- 報表 ---------- */
+async function loadReport(){
+  $('reportInfo').textContent = '載入中…';
+  try {
+    state.report = await api('getReport');
+    const years = [...new Set(state.report.months.map(m => m.slice(0,4)))];
+    const sel = $('fromYear'); const cur = sel.value;
+    sel.replaceChildren(h('option',{value:'',text:'全部'}), ...years.map(y => h('option',{value:y,text:y})));
+    sel.value = years.includes(cur) ? cur : '';
+    $('reportInfo').textContent = '更新時間 ' + new Date(state.report.generatedAt).toLocaleString('zh-TW');
+    renderReport(); renderOwners();
+  } catch(e){ $('reportInfo').textContent = ''; toast(e.message, true); }
+}
+$('btnReload').onclick = loadReport;
+$('fromYear').onchange = () => state.report && renderReport();
+
+function renderReport(){
+  const R = state.report, rows = R.rows, n = R.months.length;
+  const from = $('fromYear').value;
+  const idx = []; for (let i = 0; i < n; i++) if (!from || R.months[i] >= from) idx.push(i);
+  const get = (label, i) => rows[label] ? rows[label][i] : null;
+
+  // 摘要
+  let last = -1;
+  for (let i = 0; i < n; i++) if (typeof get(L.net, i) === 'number' && get(L.status, i) !== '預估') last = i;
+  const tiles = $('tiles'); tiles.replaceChildren();
+  const tile = (k, v, cls) => tiles.append(h('div',{class:'tile'}, h('div',{class:'k',text:k}), h('div',{class:'v ' + (cls||''),text:v})));
+  if (last >= 0){
+    const d = get(L.delta, last);
+    tile('最新淨值（' + R.months[last] + '）', money(get(L.net, last)));
+    tile('較上月', money(d), typeof d === 'number' ? (d < 0 ? 'neg' : 'pos') : '');
+    tile('總資產', money(get(L.assets, last)));
+    tile('總負債', money(get(L.debt, last)));
+    const cm = get(L.cash, last); tile('現金可支應月數', typeof cm === 'number' ? cm.toFixed(1) + ' 個月' : '–');
+  } else tiles.append(h('div',{class:'note',text:'尚無實績資料。'}));
+
+  // 圖
+  if (window.Chart){
+    const data = key => idx.map(i => { const v = get(key, i); return typeof v === 'number' ? v : null; });
+    if (state.chart) state.chart.destroy();
+    state.chart = new Chart($('chart'), { type:'line',
+      data:{ labels: idx.map(i => R.months[i]), datasets:[
+        {label:'淨值', data:data(L.net), borderColor:'#1f4e78', backgroundColor:'#1f4e78', pointRadius:2, tension:.2, spanGaps:false},
+        {label:'預估淨值', data:data(L.proj), borderColor:'#c58b00', backgroundColor:'#c58b00', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:false} ]},
+      options:{ responsive:true, maintainAspectRatio:true, interaction:{mode:'index', intersect:false},
+        scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
+        plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
+  }
+
+  // 表
+  const cols = [['月份',null],['狀態',L.status],['總資產',L.assets],['總負債',L.debt],['淨值',L.net],['月增減',L.delta],
+                ['收入',L.inc],['固定支出',L.fix],['其他支出',L.oth],['淨現金流',L.flow],['預估淨值',L.proj]];
+  const t = $('monthTable'); t.replaceChildren();
+  t.append(h('thead',null,h('tr',null,...cols.map((c,k) => h('th',{class:k>1?'num':'',text:c[0]})))));
+  const tb = h('tbody');
+  idx.forEach(i => {
+    const st = get(L.status, i);
+    const tr = h('tr');
+    tr.append(h('td',{text:R.months[i]}), h('td',null,h('span',{class:'badge' + (st === '預估' ? ' est' : ''),text:st || '–'})));
+    cols.slice(2).forEach(c => { const v = get(c[1], i); tr.append(h('td',{class:'num' + (typeof v === 'number' && v < 0 && c[1] !== L.net && c[1] !== L.assets ? ' neg' : ''),text:money(v)})); });
+    tb.append(tr);
+  });
+  t.append(tb);
+}
+
+function renderOwners(){
+  const o = state.report && state.report.owners, t = $('ownerTable'); t.replaceChildren();
+  if (!o){ $('ownerDates').textContent = '試算表沒有「負責人現況」分頁。'; return; }
+  $('ownerDates').textContent = `資產快照 ${o.assetDate || '–'}　負債快照 ${o.liabDate || '–'}　（比較：${o.assetPrevDate || '無'}）`;
+  t.append(h('thead',null,h('tr',null,...o.header.map((x,k) => h('th',{class:k?'num':'',text:x})))));
+  const tb = h('tbody');
+  o.rows.forEach(r => tb.append(h('tr',null,...r.map((v,k) => h('td',{class:k?'num':'',text:k === 9 ? pct(v) : (k ? money(v) : v)})))));
+  t.append(tb);
+}
+
+/* ---------- 三表 ---------- */
+const STMT_NOTES = {
+  balanceSheet: '現金＝銀行＋共同帳戶；流動資產＝現金＋股票；預估月份沒有資產負債資料，所以空白。',
+  incomeStatement: '現金基礎的收支結餘；支出以括號（負數）表示。下半部把淨值變動拆成「本期損益」與「投資損益、貸款本金及其他」。',
+  cashFlow: '營業活動取自收支記錄；投資與融資活動由資產負債表餘額變動推算（市值漲跌會混入投資活動）。「其他／未分類差額」很大時，代表收支可能有漏記。'
+};
+async function loadStatements(){
+  $('stmtInfo').textContent = '載入中…';
+  try {
+    state.stmts = await api('getStatements');
+    $('stmtInfo').textContent = '更新時間 ' + new Date(state.stmts.generatedAt).toLocaleString('zh-TW');
+    renderStatement();
+  } catch(e){ $('stmtInfo').textContent = ''; toast(e.message, true); }
+}
+$('btnStmtReload').onclick = loadStatements;
+$('stmtSel').onchange = () => state.stmts && renderStatement();
+$('stmtRange').onchange = () => state.stmts && renderStatement();
+function renderStatement(){
+  const key = $('stmtSel').value, S = state.stmts[key], n = S.months.length;
+  let idx = [...Array(n).keys()];
+  if ($('stmtRange').value === 'recent'){
+    let last = -1;
+    S.rows.forEach(r => r.values.forEach((v, i) => { if (!r.section && typeof v === 'number' && S.status[i] !== '預估' && i > last) last = i; }));
+    if (last < 0) last = Math.min(n - 1, 11);
+    const start = Math.max(0, last - 11), end = Math.min(n - 1, last + 3);
+    idx = idx.filter(i => i >= start && i <= end);
+  }
+  const t = $('stmtTable'); t.replaceChildren();
+  t.append(h('thead', null,
+    h('tr', null, h('th', {text:'項目'}), ...idx.map(i => h('th', {class:'num', text:S.months[i]}))),
+    h('tr', null, h('th', {text:'狀態'}), ...idx.map(i => h('th', {class:'num', text:S.status[i] || '–'})))));
+  const tb = h('tbody');
+  const isPct = l => /率|占/.test(l);
+  const isTotal = l => /合計|總計|淨增減|淨現金流|期初|期末|本期損益|淨值（|負債＋淨值|^現金及約當現金$/.test(l);
+  S.rows.forEach(r => {
+    const tr = h('tr');
+    if (r.section){
+      tr.append(h('td', {class:'sec', colspan: idx.length + 1, text:r.label}));
+    } else {
+      const tot = isTotal(r.label);
+      tr.append(h('td', {class:'lab' + (tot ? ' tot' : ''), text:r.label.trim()}));
+      idx.forEach(i => {
+        const v = r.values[i];
+        tr.append(h('td', {class:'num' + (tot ? ' tot' : '') + (typeof v === 'number' && v < 0 && !isPct(r.label) ? ' neg' : ''),
+          text: isPct(r.label) ? pct(v) : money(v)}));
+      });
+    }
+    tb.append(tr);
+  });
+  t.append(tb);
+  $('stmtNote').textContent = STMT_NOTES[key];
+}
+
+/* ---------- 啟動 ---------- */
+async function init(force){
+  if (!loadCfg().url){ openSettings(); return; }
+  state.report = null; state.stmts = null; state.futureLoaded = false;
+  await loadEntry();
+}
+$('entryDate').value = today();
+if ($('assetBody').children.length === 0) { DEFAULT_ASSETS.forEach(addAssetRow); DEFAULT_LIABS.forEach(addLiabRow); }
+init();
+</script>
+</body>
+</html>
