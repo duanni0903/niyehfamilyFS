@@ -370,7 +370,7 @@ function setUnitOptions(sel, kind, keep){
   sel.value = keep && opts.includes(keep) ? keep : opts[0];
 }
 function readAssetRow(tr){
-  const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? e.value.trim() : ''; };
+  const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? (k === 'name' ? nameOfKey(e.value) : e.value).trim() : ''; };
   const row = { owner:g('owner'), kind:g('kind'), name:g('name'), units:g('units'), unit:g('unit'),
                 price:g('price'), costPrice:g('costPrice'), fx:g('fx'), costFx:g('costFx') };
   if (tr._parent){                       // 額外資產：負責人、性質跟著主標的
@@ -389,27 +389,33 @@ function removeAssetRow(tr){
   tr.remove(); updateTotals();
 }
 function roInput(k, v){ return tag(h('input', {class:'ro', readonly:'readonly', tabindex:'-1', value:v || '', placeholder:'自動帶入'}), k); }
-function findTarget(cat, name){ return state.targets.find(t => t.cat === cat && t.name === name); }
+const KSEP = '\u0001';
+const tkey = (owner, name) => (owner || '') + KSEP + name;
+const nameOfKey = v => String(v || '').split(KSEP).pop();
+function findTarget(cat, key){ return state.targets.find(t => t.cat === cat && tkey(t.owner, t.name) === key); }
 function fillTargetOptions(sel){
   const cat = sel._cat, cur = sel.value;
-  const list = state.targets.filter(t => t.cat === cat && t.status === '使用中').map(t => t.name);
-  const opts = [h('option', {value:'', text:'請選擇標的'}), ...list.map(n => h('option', {value:n, text:n}))];
-  if (cur && cur !== '__new__' && !list.includes(cur)) opts.push(h('option', {value:cur, text:cur + '（未在清單）'}));
+  const list = state.targets.filter(t => t.cat === cat && t.status === '使用中');
+  const opts = [h('option', {value:'', text:'請選擇標的'}), ...list.map(t => h('option', {value:tkey(t.owner, t.name), text:`${t.name}（${t.owner}）`}))];
+  if (cur && cur !== '__new__' && !list.some(t => tkey(t.owner, t.name) === cur)){
+    const [o, n] = cur.split(KSEP); opts.push(h('option', {value:cur, text:`${n}（${o}，未在清單）`}));
+  }
   opts.push(h('option', {value:'__new__', text:'＋ 建立新標的…'}));
   sel.replaceChildren(...opts);
   sel.value = (cur && opts.some(o => o.value === cur)) ? cur : '';
   sel._prev = sel.value;
 }
 function refreshTargetSelects(){ document.querySelectorAll('select.tsel').forEach(fillTargetOptions); }
-function targetSelect(cat, current, onPick){
+function targetSelect(cat, current, onPick){          // current = {owner, name}
   const sel = h('select', {class:'tsel'}); sel._cat = cat;
-  if (current) sel.append(h('option', {value:current, text:current}));
-  sel.value = current || '';
+  const cur = current && current.name ? tkey(current.owner, current.name) : '';
+  if (cur) sel.append(h('option', {value:cur, text:current.name}));
+  sel.value = cur;
   fillTargetOptions(sel);
   sel.addEventListener('change', () => {
     if (sel.value === '__new__'){
       const back = sel._prev || ''; sel.value = back;
-      openTargetDialog(cat, name => { fillTargetOptions(sel); sel.value = name; sel._prev = name; onPick(name); });
+      openTargetDialog(cat, key => { fillTargetOptions(sel); sel.value = key; sel._prev = key; onPick(key); });
       return;
     }
     sel._prev = sel.value; onPick(sel.value);
@@ -420,12 +426,12 @@ function addAssetRow(d = {}, parent = null){
   const tr = h('tr', {class:'row-a'});
   const unitSel = tag(h('select'), 'unit');
   if (!parent){
-    const t0 = d.name ? findTarget('資產', d.name) : null;
+    const t0 = d.name ? findTarget('資產', tkey(d.owner, d.name)) : null;
     const ownerInp = roInput('owner', d.owner || (t0 && t0.owner));
     const kindInp = roInput('kind', d.kind || (t0 && t0.kind));
     setUnitOptions(unitSel, kindInp.value, d.unit || (t0 && t0.unit));
-    const nameSel = tag(targetSelect('資產', d.name, name => {
-      const t = findTarget('資產', name);
+    const nameSel = tag(targetSelect('資產', d, key => {
+      const t = findTarget('資產', key);
       ownerInp.value = t ? t.owner : ''; kindInp.value = t ? t.kind : '';
       setUnitOptions(unitSel, kindInp.value, t ? t.unit : null);
       refreshExtraBtn(tr); updateAssetRow(tr);
@@ -468,11 +474,11 @@ function loadAssetRows(list){
 }
 function addLiabRow(d = {}){
   const tr = h('tr', {class:'row-l'});
-  const t0 = d.name ? findTarget('負債', d.name) : null;
+  const t0 = d.name ? findTarget('負債', tkey(d.owner, d.name)) : null;
   const ownerInp = roInput('owner', d.owner || (t0 && t0.owner));
   const kindInp = roInput('kind', d.kind || (t0 && t0.kind));
-  const nameSel = tag(targetSelect('負債', d.name, name => {
-    const t = findTarget('負債', name);
+  const nameSel = tag(targetSelect('負債', d, key => {
+    const t = findTarget('負債', key);
     ownerInp.value = t ? t.owner : ''; kindInp.value = t ? t.kind : '';
   }), 'name');
   tr.append(h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel),
@@ -511,7 +517,7 @@ function readRows(body){
   const out = [];
   for (const tr of body.querySelectorAll('tr')){
     const c = tr.querySelectorAll('select,input');
-    out.push({ owner:c[0].value, kind:c[1].value, name:c[2].value.trim(), amount:c[3].value });
+    out.push({ owner:c[0].value, kind:c[1].value, name:nameOfKey(c[2].value).trim(), amount:c[3].value });
   }
   return out;
 }
@@ -731,7 +737,7 @@ $('tgtForm').addEventListener('submit', async ev => {
   const fail = m => { $('tgtMsg').textContent = m; };
   if (!name) return fail('請填標的名稱');
   if (name.includes(SEP)) return fail(`標的名稱不可包含「${SEP}」`);
-  if (findTarget(cat, name)) return fail(`「${name}」已經存在，請直接從選單選取（若已停用，請到「標的」分頁改回使用中）`);
+  if (findTarget(cat, tkey($('tgtOwner').value, name))) return fail(`「${name}」（${$('tgtOwner').value}）已經存在，請直接從選單選取（若已停用，請到「標的」分頁改回使用中）`);
   const row = { cat, owner:$('tgtOwner').value, kind:$('tgtKind').value, name, unit: cat === '資產' ? $('tgtUnit').value : '', status:'使用中' };
   const b = $('tgtOk'); b.disabled = true;
   try {
@@ -739,7 +745,7 @@ $('tgtForm').addEventListener('submit', async ev => {
     state.targets = [...state.targets, row]; state.targetsLoaded = true;
     refreshTargetSelects(); renderTargets();
     const d = $('dlgTarget'); if (d.close) d.close(); else d.removeAttribute('open');
-    if (done) done(name);
+    if (done) done(tkey(row.owner, name));
   } catch(e){ fail(e.message); }
   finally { b.disabled = false; }
 });
@@ -772,7 +778,7 @@ $('saveTgt').onclick = async () => {
   for (const [i, r] of rows.entries()){
     if (!r.name) return toast(`第 ${i+1} 列：請填標的名稱，不用的列請刪除`, true);
     if (r.name.includes(SEP)) return toast(`第 ${i+1} 列：標的名稱不可包含「${SEP}」`, true);
-    const k = r.cat + '|' + r.name; if (seen.has(k)) return toast(`第 ${i+1} 列：「${r.name}」重複了`, true); seen.add(k);
+    const k = r.cat + '|' + r.owner + '|' + r.name; if (seen.has(k)) return toast(`第 ${i+1} 列：「${r.name}」（${r.owner}）重複了，同一負責人不能有相同標的`, true); seen.add(k);
   }
   const b = $('saveTgt'); b.disabled = true;
   try { const r = await api('saveTargets', {rows}); state.targets = rows; refreshTargetSelects(); toast(`已儲存 ${r.saved} 個標的`); }
