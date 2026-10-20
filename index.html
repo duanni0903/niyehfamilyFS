@@ -37,6 +37,7 @@
   td.sec{background:var(--brand);color:var(--brand-ink);font-weight:700}
   td.tot{background:var(--blue);font-weight:700}
   input.same{background:var(--warn)}
+  input.ro{background:transparent;border-color:transparent;pointer-events:none;color:var(--muted);min-width:60px}
   tr.row-x td{background:var(--green);opacity:.92} .btn-extra[hidden]{display:none}
   table.wide{min-width:1100px} table.wide input{min-width:64px} td.calc{font-variant-numeric:tabular-nums}
   tfoot td{border-top:2px solid var(--line);border-bottom:0}
@@ -70,6 +71,7 @@
 </header>
 <nav id="tabs">
   <button data-tab="entry" class="on" type="button">填報</button>
+  <button data-tab="targets" type="button">標的</button>
   <button data-tab="report" type="button">月報</button>
   <button data-tab="owners" type="button">負責人現況</button>
   <button data-tab="statements" type="button">三表</button>
@@ -108,6 +110,23 @@
     <div class="bar">
       <button class="btn" id="btnSubmit" type="button">送出填報</button>
       <span class="note">單位數、現單價、現匯率已預設為上次的內容（黃底＝尚未修改）；請把有變動的改成本次數字，不用的列按 × 刪除。</span>
+    </div>
+  </div>
+</section>
+
+<section id="tab-targets">
+  <div class="card">
+    <h2>標的管理</h2>
+    <p class="note">先在這裡建立標的，填報時只要從下拉選單選標的，負責人、性質、單位會自動帶入。<br>
+      改名只影響之後的填報、舊資料維持原名；要改名請新增新標的，並把舊的設為「停用」。停用的標的不會出現在選單，歷史資料保留。</p>
+    <div class="scroll"><table>
+      <thead><tr><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>狀態</th><th></th></tr></thead>
+      <tbody id="tgtBody"></tbody>
+    </table></div>
+    <div class="bar">
+      <button class="btn ghost small" id="addTgt" type="button">＋ 新增標的</button>
+      <button class="btn" id="saveTgt" type="button">儲存</button>
+      <button class="btn ghost small" id="reloadTgt" type="button">重新載入</button>
     </div>
   </div>
 </section>
@@ -171,6 +190,20 @@
 
 </main>
 
+<dialog id="dlgTarget">
+  <form method="dialog" id="tgtForm">
+    <h2 style="margin-top:0" id="tgtTitle">建立標的</h2>
+    <label for="tgtOwner">負責人</label><select id="tgtOwner"></select>
+    <label for="tgtKind">性質</label><select id="tgtKind"></select>
+    <label for="tgtName">標的名稱</label><input id="tgtName" type="text" placeholder="例：TSLA、元大銀行、威均川玥">
+    <div id="tgtUnitWrap"><label for="tgtUnit">單位</label><select id="tgtUnit"></select></div>
+    <div class="bar">
+      <button class="btn" id="tgtOk" value="ok" type="submit">建立</button>
+      <button class="btn ghost" value="cancel" type="submit" formnovalidate>取消</button>
+    </div>
+    <div id="tgtMsg" class="note"></div>
+  </form>
+</dialog>
 <dialog id="dlg">
   <form method="dialog" id="cfgForm">
     <h2 style="margin-top:0">後端設定</h2>
@@ -282,10 +315,11 @@ function showTab(name){
   if (name === 'report' && !state.report) loadReport();
   if (name === 'owners' && !state.report) loadReport();
   if (name === 'statements' && !state.stmts) loadStatements();
+  if (name === 'targets' && !state.targetsLoaded) loadTargetsTab();
   if (name === 'future' && !state.futureLoaded) loadFuture();
 }
 
-const state = { known: {}, dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
+const state = { targets: [], targetsLoaded: false, dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
 
 /* ---------- 填報 ---------- */
 // 尚無歷史快照時，資產給一列空白供開始填寫，負債不預設任何列
@@ -354,28 +388,49 @@ function removeAssetRow(tr){
   $('assetBody').querySelectorAll('tr').forEach(x => { if (x._parent === tr) x.remove(); });
   tr.remove(); updateTotals();
 }
+function roInput(k, v){ return tag(h('input', {class:'ro', readonly:'readonly', tabindex:'-1', value:v || '', placeholder:'自動帶入'}), k); }
+function findTarget(cat, name){ return state.targets.find(t => t.cat === cat && t.name === name); }
+function fillTargetOptions(sel){
+  const cat = sel._cat, cur = sel.value;
+  const list = state.targets.filter(t => t.cat === cat && t.status === '使用中').map(t => t.name);
+  const opts = [h('option', {value:'', text:'請選擇標的'}), ...list.map(n => h('option', {value:n, text:n}))];
+  if (cur && cur !== '__new__' && !list.includes(cur)) opts.push(h('option', {value:cur, text:cur + '（未在清單）'}));
+  opts.push(h('option', {value:'__new__', text:'＋ 建立新標的…'}));
+  sel.replaceChildren(...opts);
+  sel.value = (cur && opts.some(o => o.value === cur)) ? cur : '';
+  sel._prev = sel.value;
+}
+function refreshTargetSelects(){ document.querySelectorAll('select.tsel').forEach(fillTargetOptions); }
+function targetSelect(cat, current, onPick){
+  const sel = h('select', {class:'tsel'}); sel._cat = cat;
+  if (current) sel.append(h('option', {value:current, text:current}));
+  sel.value = current || '';
+  fillTargetOptions(sel);
+  sel.addEventListener('change', () => {
+    if (sel.value === '__new__'){
+      const back = sel._prev || ''; sel.value = back;
+      openTargetDialog(cat, name => { fillTargetOptions(sel); sel.value = name; sel._prev = name; onPick(name); });
+      return;
+    }
+    sel._prev = sel.value; onPick(sel.value);
+  });
+  return sel;
+}
 function addAssetRow(d = {}, parent = null){
   const tr = h('tr', {class:'row-a'});
   const unitSel = tag(h('select'), 'unit');
-  let kindSel = null;
   if (!parent){
-    const ownerSel = tag(select(OWNERS, d.owner), 'owner');
-    kindSel = tag(select(ASSET_KINDS, d.kind), 'kind');
-    const name = tag(h('input', {type:'text', list:'names', value:d.name || '', placeholder:'標的'}), 'name');
-    setUnitOptions(unitSel, kindSel.value, d.unit);
-    kindSel.addEventListener('change', () => {
-      const list = UNITS[kindSel.value] || ['單位'];
-      setUnitOptions(unitSel, kindSel.value, list.includes(unitSel.value) ? unitSel.value : null);
-      refreshExtraBtn(tr);
-    });
-    name.addEventListener('change', () => {          // 選到已知標的：自動帶入負責人、性質、單位
-      const k = state.known[name.value.trim()];
-      const units = tr.querySelector('[data-f="units"]');
-      if (k && units.value === ''){
-        ownerSel.value = k.owner; kindSel.value = k.kind; setUnitOptions(unitSel, k.kind, k.unit); refreshExtraBtn(tr);
-      }
-    });
-    tr.append(h('td',null,ownerSel), h('td',null,kindSel), h('td',null,name));
+    const t0 = d.name ? findTarget('資產', d.name) : null;
+    const ownerInp = roInput('owner', d.owner || (t0 && t0.owner));
+    const kindInp = roInput('kind', d.kind || (t0 && t0.kind));
+    setUnitOptions(unitSel, kindInp.value, d.unit || (t0 && t0.unit));
+    const nameSel = tag(targetSelect('資產', d.name, name => {
+      const t = findTarget('資產', name);
+      ownerInp.value = t ? t.owner : ''; kindInp.value = t ? t.kind : '';
+      setUnitOptions(unitSel, kindInp.value, t ? t.unit : null);
+      refreshExtraBtn(tr); updateAssetRow(tr);
+    }), 'name');
+    tr.append(h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel));
   } else {
     tr.classList.add('row-x'); tr._parent = parent;
     setUnitOptions(unitSel, '不動產', d.unit || '個');
@@ -397,7 +452,7 @@ function addAssetRow(d = {}, parent = null){
     $('assetBody').querySelectorAll('tr').forEach(x => { if (x._parent === parent) last = x; });
     last.after(tr);
   } else $('assetBody').append(tr);
-  if (kindSel) refreshExtraBtn(tr);
+  if (!parent) refreshExtraBtn(tr);
   updateAssetRow(tr);
   return tr;
 }
@@ -413,8 +468,14 @@ function loadAssetRows(list){
 }
 function addLiabRow(d = {}){
   const tr = h('tr', {class:'row-l'});
-  const name = h('input', {type:'text', list:'names', value:d.name || '', placeholder:'標的'});
-  tr.append(h('td',null,select(OWNERS, d.owner)), h('td',null,select(LIAB_KINDS, d.kind)), h('td',null,name),
+  const t0 = d.name ? findTarget('負債', d.name) : null;
+  const ownerInp = roInput('owner', d.owner || (t0 && t0.owner));
+  const kindInp = roInput('kind', d.kind || (t0 && t0.kind));
+  const nameSel = tag(targetSelect('負債', d.name, name => {
+    const t = findTarget('負債', name);
+    ownerInp.value = t ? t.owner : ''; kindInp.value = t ? t.kind : '';
+  }), 'name');
+  tr.append(h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel),
     h('td',null,numInput(d.amount)),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
   $('liabBody').append(tr);
@@ -422,23 +483,19 @@ function addLiabRow(d = {}){
 $('addAsset').onclick = () => addAssetRow();
 $('addLiab').onclick = () => addLiabRow();
 
-function ensureDatalist(){
-  let dl = $('names');
-  if (!dl){ dl = h('datalist', {id:'names'}); document.body.append(dl); }
-  dl.replaceChildren(...[...state.names].map(n => h('option', {value:n})));
+async function loadTargets(){
+  try { const t = await api('getTargets'); state.targets = t.targets; state.targetsLoaded = true; }
+  catch(e){ toast(e.message + '（請確認後端 Code.gs 已更新並重新部署）', true); }
 }
-
 async function loadEntry(){
   $('entryDate').value = $('entryDate').value || today();
   $('assetBody').replaceChildren(); $('liabBody').replaceChildren();
+  await loadTargets();
   let latest = null;
   try { latest = await api('getLatest'); } catch(e){ toast(e.message, true); }
   const assets = latest && latest.assets.length ? latest.assets : DEFAULT_ASSETS;
   const liabs = latest && latest.liabilities.length ? latest.liabilities : DEFAULT_LIABS;
   state.dates = latest ? latest.dates : [];
-  state.known = {};
-  assets.forEach(x => { if (x.name && !String(x.name).includes(SEP)){ state.names.add(x.name); state.known[x.name] = {owner:x.owner, kind:x.kind, unit:x.unit}; } });
-  liabs.forEach(x => { if (x.name) state.names.add(x.name); }); ensureDatalist();
   loadAssetRows(assets);
   liabs.forEach(l => addLiabRow(l));
   $('dateInfo').textContent = latest && latest.assetDate ? '上次填報：' + latest.assetDate : '尚無歷史快照';
@@ -466,14 +523,14 @@ $('btnSubmit').onclick = async () => {
   if (!assets.length) return toast('至少需要一筆資產', true);
   for (const [i, r] of assets.entries()){
     if (r.extra !== undefined && !r.extra) return toast(`資產第 ${i+1} 列：額外資產請填項目名稱（例：車位），不用的列請刪除`, true);
-    if (!r.name) return toast(`資產第 ${i+1} 列：請填標的`, true);
+    if (!r.name) return toast(`資產第 ${i+1} 列：請選擇標的（沒有的話選「＋ 建立新標的…」），不用的列請刪除`, true);
     if (fnum(r.units) === null) return toast(`資產第 ${i+1} 列（${r.name}）：請填單位數，不用的列請刪除`, true);
     if (fnum(r.price) === null) return toast(`資產第 ${i+1} 列（${r.name}）：請填現單價，不用的列請刪除`, true);
     if (r.costPrice !== '' && fnum(r.costPrice) === null) return toast(`資產第 ${i+1} 列（${r.name}）：成本價必須是數字`, true);
     for (const k of ['fx','costFx']) if (r[k] !== '' && (fnum(r[k]) === null || fnum(r[k]) <= 0)) return toast(`資產第 ${i+1} 列（${r.name}）：匯率必須是大於 0 的數字（台幣可留空）`, true);
   }
   for (const [i, r] of liabs.entries()){
-    if (!r.name) return toast(`負債第 ${i+1} 列：請填標的`, true);
+    if (!r.name) return toast(`負債第 ${i+1} 列：請選擇標的（沒有的話選「＋ 建立新標的…」），不用的列請刪除`, true);
     if (r.amount === '' || isNaN(Number(r.amount))) return toast(`負債第 ${i+1} 列（${r.name}）：請填入本次金額，不用的列請刪除`, true);
     if (Number(r.amount) < 0) return toast(`負債第 ${i+1} 列：金額請填正數`, true);
   }
@@ -653,6 +710,75 @@ function renderStatement(){
   t.append(tb);
   $('stmtNote').textContent = STMT_NOTES[key];
 }
+
+/* ---------- 標的：建立與管理 ---------- */
+const KINDS_BY_CAT = { '資產': ASSET_KINDS, '負債': LIAB_KINDS };
+function openTargetDialog(cat, done){
+  $('tgtTitle').textContent = '建立' + cat + '標的'; $('tgtMsg').textContent = ''; $('tgtName').value = '';
+  const fill = (sel, list) => sel.replaceChildren(...list.map(o => h('option', {value:o, text:o})));
+  fill($('tgtOwner'), OWNERS); fill($('tgtKind'), KINDS_BY_CAT[cat]);
+  $('tgtUnitWrap').hidden = cat !== '資產';
+  const syncUnit = () => setUnitOptions($('tgtUnit'), $('tgtKind').value, null);
+  syncUnit(); $('tgtKind').onchange = syncUnit;
+  state._tgt = { cat, done };
+  const d = $('dlgTarget'); if (d.showModal) d.showModal(); else d.setAttribute('open','');
+}
+$('tgtForm').addEventListener('submit', async ev => {
+  if (!(ev.submitter && ev.submitter.value === 'ok')) return;   // 取消：照常關閉
+  ev.preventDefault();
+  const { cat, done } = state._tgt || {};
+  const name = $('tgtName').value.trim();
+  const fail = m => { $('tgtMsg').textContent = m; };
+  if (!name) return fail('請填標的名稱');
+  if (name.includes(SEP)) return fail(`標的名稱不可包含「${SEP}」`);
+  if (findTarget(cat, name)) return fail(`「${name}」已經存在，請直接從選單選取（若已停用，請到「標的」分頁改回使用中）`);
+  const row = { cat, owner:$('tgtOwner').value, kind:$('tgtKind').value, name, unit: cat === '資產' ? $('tgtUnit').value : '', status:'使用中' };
+  const b = $('tgtOk'); b.disabled = true;
+  try {
+    await api('saveTargets', { rows: [...state.targets, row] });
+    state.targets = [...state.targets, row]; state.targetsLoaded = true;
+    refreshTargetSelects(); renderTargets();
+    const d = $('dlgTarget'); if (d.close) d.close(); else d.removeAttribute('open');
+    if (done) done(name);
+  } catch(e){ fail(e.message); }
+  finally { b.disabled = false; }
+});
+
+function addTargetRow(t = {}){
+  const cat = h('select'); ['資產','負債'].forEach(o => cat.append(h('option',{value:o,text:o}))); cat.value = t.cat || '資產';
+  const owner = select(OWNERS, t.owner);
+  const kind = h('select'); const unit = h('select');
+  const name = h('input', {type:'text', value:t.name || '', placeholder:'標的名稱'});
+  const status = select(['使用中','停用'], t.status);
+  const tr = h('tr', {class: 'row-f'});
+  const syncKind = keep => { kind.replaceChildren(...KINDS_BY_CAT[cat.value].map(o => h('option',{value:o,text:o}))); if (keep && KINDS_BY_CAT[cat.value].includes(keep)) kind.value = keep; };
+  const syncUnit = keep => { unit.disabled = cat.value !== '資產';
+    if (cat.value === '資產') setUnitOptions(unit, kind.value, keep); else unit.replaceChildren(h('option',{value:'',text:'–'})); };
+  syncKind(t.kind); syncUnit(t.unit);
+  cat.onchange = () => { syncKind(null); syncUnit(null); };
+  kind.onchange = () => { const list = UNITS[kind.value] || ['單位']; syncUnit(list.includes(unit.value) ? unit.value : null); };
+  tr.append(h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,status),
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => tr.remove()})));
+  tr._read = () => ({ cat:cat.value, owner:owner.value, kind:kind.value, name:name.value.trim(), unit:unit.value, status:status.value });
+  $('tgtBody').append(tr);
+}
+function renderTargets(){ $('tgtBody').replaceChildren(); state.targets.forEach(addTargetRow); }
+async function loadTargetsTab(){ await loadTargets(); renderTargets(); }
+$('addTgt').onclick = () => addTargetRow();
+$('reloadTgt').onclick = loadTargetsTab;
+$('saveTgt').onclick = async () => {
+  const rows = [...$('tgtBody').querySelectorAll('tr')].map(tr => tr._read());
+  const seen = new Set();
+  for (const [i, r] of rows.entries()){
+    if (!r.name) return toast(`第 ${i+1} 列：請填標的名稱，不用的列請刪除`, true);
+    if (r.name.includes(SEP)) return toast(`第 ${i+1} 列：標的名稱不可包含「${SEP}」`, true);
+    const k = r.cat + '|' + r.name; if (seen.has(k)) return toast(`第 ${i+1} 列：「${r.name}」重複了`, true); seen.add(k);
+  }
+  const b = $('saveTgt'); b.disabled = true;
+  try { const r = await api('saveTargets', {rows}); state.targets = rows; refreshTargetSelects(); toast(`已儲存 ${r.saved} 個標的`); }
+  catch(e){ toast(e.message, true); }
+  finally { b.disabled = false; }
+};
 
 /* ---------- 啟動 ---------- */
 async function init(force){
