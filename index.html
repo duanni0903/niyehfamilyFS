@@ -36,6 +36,7 @@
   input[type=number]{text-align:right}
   td.sec{background:var(--brand);color:var(--brand-ink);font-weight:700}
   td.tot{background:var(--blue);font-weight:700}
+  input.same{background:var(--warn)}
   td.lab{position:sticky;left:0;background:var(--card);min-width:220px;z-index:1}
   .row-a td{background:var(--green)} .row-l td{background:var(--red)} .row-f td{background:var(--blue)}
   .btn{background:var(--brand);color:var(--brand-ink);border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer}
@@ -98,7 +99,7 @@
 
     <div class="bar">
       <button class="btn" id="btnSubmit" type="button">送出填報</button>
-      <span class="note">灰色提示字是上次填的數字；每列都要填入本次金額，不用的列請按 × 刪除。</span>
+      <span class="note">金額已預設為上次的數字（黃底＝尚未修改）；請把有變動的改成本次金額，不用的列按 × 刪除。</span>
     </div>
   </div>
 </section>
@@ -285,7 +286,13 @@ const DEFAULT_LIABS = [];
 
 function numInput(prev){
   const i = h('input', {type:'number', step:'any', inputmode:'decimal'});
-  if (prev !== null && prev !== undefined && prev !== '') i.placeholder = money(prev);
+  if (prev !== null && prev !== undefined && prev !== ''){
+    i.value = prev;                       // 預設帶入上次的金額
+    i.dataset.prev = String(prev);
+    i.title = '上次：' + money(prev);
+    const mark = () => i.classList.toggle('same', i.value === i.dataset.prev);
+    i.addEventListener('input', mark); mark();
+  }
   return i;
 }
 function addAssetRow(d = {}){
