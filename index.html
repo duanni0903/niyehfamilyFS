@@ -226,7 +226,7 @@
 <script>
 'use strict';
 const OWNERS = ['倪端','葉芳瑜','雙方'];
-const ASSET_KINDS = ['股票','銀行','不動產','共同帳戶','其他'];
+const ASSET_KINDS = ['股票','銀行','不動產','共同帳戶','虛擬貨幣','其他'];
 const LIAB_KINDS = ['貸款','其他'];
 const FUT_OWNERS = ['倪端','葉芳瑜','兩人'];
 const INCOME_KINDS = ['月薪','獎金','股利','其他收入'];
@@ -362,7 +362,7 @@ function updateTotals(){
 }
 function tag(el, k){ el.dataset.f = k; return el; }
 const SEP = '｜';   // 額外資產的標的命名：主標的｜項目（例：威均川玥｜車位）
-const UNITS = { '股票':['股','張'], '銀行':['單位'], '不動產':['坪數','單位','個'], '共同帳戶':['單位'], '其他':['單位','個'] };
+const UNITS = { '股票':['股','張'], '銀行':['單位'], '不動產':['坪數','單位','個'], '共同帳戶':['單位'], '虛擬貨幣':['顆','單位'], '其他':['單位','個'] };
 function setUnitOptions(sel, kind, keep){
   const opts = [...(UNITS[kind] || ['單位'])];
   if (keep && !opts.includes(keep)) opts.unshift(keep);
@@ -654,13 +654,13 @@ function renderOwners(){
   $('ownerDates').textContent = `資產快照 ${o.assetDate || '–'}　負債快照 ${o.liabDate || '–'}　（比較：${o.assetPrevDate || '無'}）`;
   t.append(h('thead',null,h('tr',null,...o.header.map((x,k) => h('th',{class:k?'num':'',text:x})))));
   const tb = h('tbody');
-  o.rows.forEach(r => tb.append(h('tr',null,...r.map((v,k) => h('td',{class:k?'num':'',text:k === 9 ? pct(v) : (k ? money(v) : v)})))));
+  o.rows.forEach(r => tb.append(h('tr',null,...r.map((v,k) => h('td',{class:k?'num':'',text:k === 10 ? pct(v) : (k ? money(v) : v)})))));
   t.append(tb);
 }
 
 /* ---------- 三表 ---------- */
 const STMT_NOTES = {
-  balanceSheet: '現金＝銀行＋共同帳戶；流動資產＝現金＋股票；預估月份沒有資產負債資料，所以空白。',
+  balanceSheet: '現金＝銀行＋共同帳戶；流動資產＝現金＋股票＋虛擬貨幣；預估月份沒有資產負債資料，所以空白。',
   incomeStatement: '現金基礎的收支結餘；支出以括號（負數）表示。下半部把淨值變動拆成「本期損益」與「投資損益、貸款本金及其他」。',
   cashFlow: '營業活動取自收支記錄；投資與融資活動由資產負債表餘額變動推算（市值漲跌會混入投資活動）。「其他／未分類差額」很大時，代表收支可能有漏記。'
 };
