@@ -37,6 +37,9 @@
   td.sec{background:var(--brand);color:var(--brand-ink);font-weight:700}
   td.tot{background:var(--blue);font-weight:700}
   input.same{background:var(--warn)}
+  tr.row-x td{background:var(--green);opacity:.92} .btn-extra[hidden]{display:none}
+  table.wide{min-width:1100px} table.wide input{min-width:64px} td.calc{font-variant-numeric:tabular-nums}
+  tfoot td{border-top:2px solid var(--line);border-bottom:0}
   td.lab{position:sticky;left:0;background:var(--card);min-width:220px;z-index:1}
   .row-a td{background:var(--green)} .row-l td{background:var(--red)} .row-f td{background:var(--blue)}
   .btn{background:var(--brand);color:var(--brand-ink);border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:700;cursor:pointer}
@@ -84,10 +87,15 @@
     <div id="dateWarn" class="warn" hidden>此日期已有快照，送出後會覆蓋當天整批資料。</div>
 
     <h2>現有資產</h2>
-    <div class="scroll"><table>
-      <thead><tr><th>負責人</th><th>性質</th><th>標的</th><th class="num">資產</th><th class="num">成本（選填）</th><th></th></tr></thead>
+    <div class="scroll"><table class="wide">
+      <thead><tr><th>負責人</th><th>性質</th><th>標的</th><th class="num">單位數<br>(股、坪數)</th><th>單位</th>
+        <th class="num">現單價</th><th class="num">成本價</th><th class="num">現匯率</th><th class="num">成本匯率</th>
+        <th class="num">資產</th><th class="num">成本</th><th></th></tr></thead>
       <tbody id="assetBody"></tbody>
+      <tfoot><tr><td colspan="9" style="text-align:right"><b>合計</b></td>
+        <td class="num"><b id="totAsset">–</b></td><td class="num"><b id="totCost">–</b></td><td></td></tr></tfoot>
     </table></div>
+    <p class="note">資產＝單位數×現單價×現匯率；成本＝單位數×成本價×成本匯率；匯率空白視為 1。存款或房屋沒有股數時，單位數填 1（或坪數）、現單價填金額（或每坪價）即可。</p>
     <div class="bar"><button class="btn ghost small" id="addAsset" type="button">＋ 新增資產（以下可新增）</button></div>
 
     <h2>現有負債</h2>
@@ -99,7 +107,7 @@
 
     <div class="bar">
       <button class="btn" id="btnSubmit" type="button">送出填報</button>
-      <span class="note">金額已預設為上次的數字（黃底＝尚未修改）；請把有變動的改成本次金額，不用的列按 × 刪除。</span>
+      <span class="note">單位數、現單價、現匯率已預設為上次的內容（黃底＝尚未修改）；請把有變動的改成本次數字，不用的列按 × 刪除。</span>
     </div>
   </div>
 </section>
@@ -277,31 +285,131 @@ function showTab(name){
   if (name === 'future' && !state.futureLoaded) loadFuture();
 }
 
-const state = { dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
+const state = { known: {}, dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
 
 /* ---------- 填報 ---------- */
 // 尚無歷史快照時，資產給一列空白供開始填寫，負債不預設任何列
 const DEFAULT_ASSETS = [ {} ];
 const DEFAULT_LIABS = [];
 
-function numInput(prev){
+function numInput(prev, mark = true){
   const i = h('input', {type:'number', step:'any', inputmode:'decimal'});
   if (prev !== null && prev !== undefined && prev !== ''){
-    i.value = prev;                       // 預設帶入上次的金額
+    i.value = prev;                       // 預設帶入上次的內容
     i.dataset.prev = String(prev);
     i.title = '上次：' + money(prev);
-    const mark = () => i.classList.toggle('same', i.value === i.dataset.prev);
-    i.addEventListener('input', mark); mark();
+    if (mark){
+      const m = () => i.classList.toggle('same', i.value === i.dataset.prev);
+      i.addEventListener('input', m); m();
+    }
   }
   return i;
 }
-function addAssetRow(d = {}){
+function fnum(v){ return (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v); }
+function calcAsset(f){   // f: {units, price, fx, costPrice, costFx}
+  const u = fnum(f.units), p = fnum(f.price), cp = fnum(f.costPrice);
+  const fx = fnum(f.fx) ?? 1, cfx = fnum(f.costFx) ?? 1;
+  return { amount: u !== null && p !== null ? u * p * fx : null, cost: u !== null && cp !== null ? u * cp * cfx : null };
+}
+function updateAssetRow(tr){
+  const c = calcAsset(readAssetRow(tr));
+  tr.querySelector('.c-amount').textContent = money(c.amount);
+  tr.querySelector('.c-cost').textContent = money(c.cost);
+  updateTotals();
+}
+function updateTotals(){
+  let a = 0, c = 0, any = false, anyC = false;
+  $('assetBody').querySelectorAll('tr').forEach(tr => {
+    const r = calcAsset(readAssetRow(tr));
+    if (r.amount !== null){ a += r.amount; any = true; }
+    if (r.cost !== null){ c += r.cost; anyC = true; }
+  });
+  $('totAsset').textContent = any ? money(a) : '–'; $('totCost').textContent = anyC ? money(c) : '–';
+}
+function tag(el, k){ el.dataset.f = k; return el; }
+const SEP = '｜';   // 額外資產的標的命名：主標的｜項目（例：威均川玥｜車位）
+const UNITS = { '股票':['股','張'], '銀行':['單位'], '不動產':['坪數','單位','個'], '共同帳戶':['單位'], '其他':['單位','個'] };
+function setUnitOptions(sel, kind, keep){
+  const opts = [...(UNITS[kind] || ['單位'])];
+  if (keep && !opts.includes(keep)) opts.unshift(keep);
+  sel.replaceChildren(...opts.map(o => h('option', {value:o, text:o})));
+  sel.value = keep && opts.includes(keep) ? keep : opts[0];
+}
+function readAssetRow(tr){
+  const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? e.value.trim() : ''; };
+  const row = { owner:g('owner'), kind:g('kind'), name:g('name'), units:g('units'), unit:g('unit'),
+                price:g('price'), costPrice:g('costPrice'), fx:g('fx'), costFx:g('costFx') };
+  if (tr._parent){                       // 額外資產：負責人、性質跟著主標的
+    const p = readAssetRow(tr._parent);
+    row.owner = p.owner; row.kind = p.kind; row.extra = row.name; row.parentName = p.name;
+    row.name = p.name + SEP + row.name;
+  }
+  return row;
+}
+function refreshExtraBtn(tr){
+  const b = tr.querySelector('.btn-extra'); if (!b) return;
+  b.hidden = tr.querySelector('[data-f="kind"]').value !== '不動產';
+}
+function removeAssetRow(tr){
+  $('assetBody').querySelectorAll('tr').forEach(x => { if (x._parent === tr) x.remove(); });
+  tr.remove(); updateTotals();
+}
+function addAssetRow(d = {}, parent = null){
   const tr = h('tr', {class:'row-a'});
-  const name = h('input', {type:'text', list:'names', value:d.name || '', placeholder:'標的'});
-  tr.append(h('td',null,select(OWNERS, d.owner)), h('td',null,select(ASSET_KINDS, d.kind)), h('td',null,name),
-    h('td',null,numInput(d.amount)), h('td',null,numInput(d.cost)),
-    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
-  $('assetBody').append(tr);
+  const unitSel = tag(h('select'), 'unit');
+  let kindSel = null;
+  if (!parent){
+    const ownerSel = tag(select(OWNERS, d.owner), 'owner');
+    kindSel = tag(select(ASSET_KINDS, d.kind), 'kind');
+    const name = tag(h('input', {type:'text', list:'names', value:d.name || '', placeholder:'標的'}), 'name');
+    setUnitOptions(unitSel, kindSel.value, d.unit);
+    kindSel.addEventListener('change', () => {
+      const list = UNITS[kindSel.value] || ['單位'];
+      setUnitOptions(unitSel, kindSel.value, list.includes(unitSel.value) ? unitSel.value : null);
+      refreshExtraBtn(tr);
+    });
+    name.addEventListener('change', () => {          // 選到已知標的：自動帶入負責人、性質、單位
+      const k = state.known[name.value.trim()];
+      const units = tr.querySelector('[data-f="units"]');
+      if (k && units.value === ''){
+        ownerSel.value = k.owner; kindSel.value = k.kind; setUnitOptions(unitSel, k.kind, k.unit); refreshExtraBtn(tr);
+      }
+    });
+    tr.append(h('td',null,ownerSel), h('td',null,kindSel), h('td',null,name));
+  } else {
+    tr.classList.add('row-x'); tr._parent = parent;
+    setUnitOptions(unitSel, '不動產', d.unit || '個');
+    tr.append(h('td',{colspan:2,class:'note',text:'└ 額外資產（車位等）'}),
+      h('td',null,tag(h('input', {type:'text', value:d.name || '', placeholder:'項目，例：車位'}), 'name')));
+  }
+  tr.append(
+    h('td',null,tag(numInput(d.units),'units')), h('td',null,unitSel),
+    h('td',null,tag(numInput(d.price),'price')), h('td',null,tag(numInput(d.costPrice,false),'costPrice')),
+    h('td',null,tag(numInput(d.fx),'fx')), h('td',null,tag(numInput(d.costFx,false),'costFx')),
+    h('td',{class:'num calc c-amount',text:'–'}), h('td',{class:'num calc c-cost',text:'–'}),
+    h('td',{style:'white-space:nowrap'},
+      parent ? null : h('button',{class:'btn ghost small btn-extra',type:'button',title:'新增額外資產（例如車位）',text:'＋額外',
+        onclick:() => addAssetRow({}, tr)}),
+      h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => removeAssetRow(tr)})));
+  tr.addEventListener('input', () => updateAssetRow(tr));
+  if (parent){                                        // 插在主標的（及其既有額外資產）後面
+    let last = parent;
+    $('assetBody').querySelectorAll('tr').forEach(x => { if (x._parent === parent) last = x; });
+    last.after(tr);
+  } else $('assetBody').append(tr);
+  if (kindSel) refreshExtraBtn(tr);
+  updateAssetRow(tr);
+  return tr;
+}
+function loadAssetRows(list){
+  const parents = {};
+  const isChild = x => String(x.name || '').includes(SEP);
+  list.filter(x => !isChild(x)).forEach(x => { parents[x.name] = addAssetRow(x); });
+  list.filter(isChild).forEach(x => {
+    const i = x.name.indexOf(SEP), pn = x.name.slice(0, i), sub = x.name.slice(i + 1);
+    if (parents[pn]) addAssetRow(Object.assign({}, x, {name: sub}), parents[pn]);
+    else addAssetRow(x);                               // 找不到主標的就當一般資產列
+  });
 }
 function addLiabRow(d = {}){
   const tr = h('tr', {class:'row-l'});
@@ -328,8 +436,10 @@ async function loadEntry(){
   const assets = latest && latest.assets.length ? latest.assets : DEFAULT_ASSETS;
   const liabs = latest && latest.liabilities.length ? latest.liabilities : DEFAULT_LIABS;
   state.dates = latest ? latest.dates : [];
-  [...assets, ...liabs].forEach(x => { if (x.name) state.names.add(x.name); }); ensureDatalist();
-  assets.forEach(a => addAssetRow(a));
+  state.known = {};
+  assets.forEach(x => { if (x.name && !String(x.name).includes(SEP)){ state.names.add(x.name); state.known[x.name] = {owner:x.owner, kind:x.kind, unit:x.unit}; } });
+  liabs.forEach(x => { if (x.name) state.names.add(x.name); }); ensureDatalist();
+  loadAssetRows(assets);
   liabs.forEach(l => addLiabRow(l));
   $('dateInfo').textContent = latest && latest.assetDate ? '上次填報：' + latest.assetDate : '尚無歷史快照';
   checkDate();
@@ -340,24 +450,27 @@ function checkDate(){
 }
 $('entryDate').addEventListener('change', checkDate);
 
-function readRows(body, withCost){
+function readRows(body){
   const out = [];
   for (const tr of body.querySelectorAll('tr')){
     const c = tr.querySelectorAll('select,input');
-    const row = { owner:c[0].value, kind:c[1].value, name:c[2].value.trim(), amount:c[3].value };
-    if (withCost) row.cost = c[4].value;
-    out.push(row);
+    out.push({ owner:c[0].value, kind:c[1].value, name:c[2].value.trim(), amount:c[3].value });
   }
   return out;
 }
+function readAssets(){ return [...$('assetBody').querySelectorAll('tr')].map(readAssetRow); }
 $('btnSubmit').onclick = async () => {
   const date = $('entryDate').value.replaceAll('-', '/');
   if (!date) return toast('請選擇日期', true);
-  const assets = readRows($('assetBody'), true), liabs = readRows($('liabBody'), false);
+  const assets = readAssets(), liabs = readRows($('liabBody'));
   if (!assets.length) return toast('至少需要一筆資產', true);
   for (const [i, r] of assets.entries()){
+    if (r.extra !== undefined && !r.extra) return toast(`資產第 ${i+1} 列：額外資產請填項目名稱（例：車位），不用的列請刪除`, true);
     if (!r.name) return toast(`資產第 ${i+1} 列：請填標的`, true);
-    if (r.amount === '' || isNaN(Number(r.amount))) return toast(`資產第 ${i+1} 列（${r.name}）：請填入本次金額，不用的列請刪除`, true);
+    if (fnum(r.units) === null) return toast(`資產第 ${i+1} 列（${r.name}）：請填單位數，不用的列請刪除`, true);
+    if (fnum(r.price) === null) return toast(`資產第 ${i+1} 列（${r.name}）：請填現單價，不用的列請刪除`, true);
+    if (r.costPrice !== '' && fnum(r.costPrice) === null) return toast(`資產第 ${i+1} 列（${r.name}）：成本價必須是數字`, true);
+    for (const k of ['fx','costFx']) if (r[k] !== '' && (fnum(r[k]) === null || fnum(r[k]) <= 0)) return toast(`資產第 ${i+1} 列（${r.name}）：匯率必須是大於 0 的數字（台幣可留空）`, true);
   }
   for (const [i, r] of liabs.entries()){
     if (!r.name) return toast(`負債第 ${i+1} 列：請填標的`, true);
@@ -367,7 +480,8 @@ $('btnSubmit').onclick = async () => {
   if (state.dates.includes(date) && !confirm(`${date} 已有快照，要覆蓋嗎？`)) return;
   const b = $('btnSubmit'); b.disabled = true;
   try {
-    const r = await api('submit', {date, assets, liabilities: liabs});
+    const clean = assets.map(({extra, parentName, ...r}) => r);
+    const r = await api('submit', {date, assets: clean, liabilities: liabs});
     toast(`已寫入 ${r.date}：資產 ${r.assetRows} 列、負債 ${r.liabilityRows} 列`);
     state.report = null; state.stmts = null; await loadEntry();
   } catch(e){ toast(e.message, true); }
@@ -547,7 +661,7 @@ async function init(force){
   await loadEntry();
 }
 $('entryDate').value = today();
-if ($('assetBody').children.length === 0) { DEFAULT_ASSETS.forEach(addAssetRow); DEFAULT_LIABS.forEach(addLiabRow); }
+if ($('assetBody').children.length === 0) { DEFAULT_ASSETS.forEach(x => addAssetRow(x)); DEFAULT_LIABS.forEach(x => addLiabRow(x)); }
 init();
 </script>
 </body>
