@@ -279,10 +279,9 @@ function showTab(name){
 const state = { dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
 
 /* ---------- 填報 ---------- */
-const DEFAULT_ASSETS = [
-  {owner:'葉芳瑜', kind:'股票', name:'0050'}, {owner:'倪端', kind:'銀行', name:'元大銀行'},
-  {owner:'倪端', kind:'不動產', name:'金門第三期'}, {owner:'倪端', kind:'不動產', name:'威均川玥'} ];
-const DEFAULT_LIABS = [ {owner:'倪端', kind:'貸款', name:'信用貸款'} ];
+// 尚無歷史快照時，資產給一列空白供開始填寫，負債不預設任何列
+const DEFAULT_ASSETS = [ {} ];
+const DEFAULT_LIABS = [];
 
 function numInput(prev){
   const i = h('input', {type:'number', step:'any', inputmode:'decimal'});
@@ -322,7 +321,7 @@ async function loadEntry(){
   const assets = latest && latest.assets.length ? latest.assets : DEFAULT_ASSETS;
   const liabs = latest && latest.liabilities.length ? latest.liabilities : DEFAULT_LIABS;
   state.dates = latest ? latest.dates : [];
-  [...assets, ...liabs].forEach(x => state.names.add(x.name)); ensureDatalist();
+  [...assets, ...liabs].forEach(x => { if (x.name) state.names.add(x.name); }); ensureDatalist();
   assets.forEach(a => addAssetRow(a));
   liabs.forEach(l => addLiabRow(l));
   $('dateInfo').textContent = latest && latest.assetDate ? '上次填報：' + latest.assetDate : '尚無歷史快照';
