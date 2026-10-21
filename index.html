@@ -179,16 +179,21 @@
 
 <section id="tab-future">
   <div class="card">
-    <h2>計算未來（收入與支出）</h2>
-    <p class="note">週期寫法：<b>每月</b>、<b>每年4月</b>、<b>單次2027/9</b>。金額一律填正數，由類別決定收入或支出。</p>
+    <h2>計算未來（收入、支出、投資）</h2>
+    <p class="note">
+      <b>計入至</b>：收入存進哪個性質、支出／投資從哪個性質扣；投資會同時把錢加進「性質」欄指定的性質（例如從銀行買股票）。<br>
+      <b>週期</b>寫法：<code>每月</code>、<code>每年3月</code>、<code>每年3,9月</code>（多個月）、<code>每隔2月</code>、<code>單次2027/9</code>，
+      都可以再加「<code>(起/訖)</code>」限定時間，例如 <code>每月(2026/11~2030/6)</code>、<code>每月(2026/11~)</code>、<code>每年3月(~2045/3)</code>。<br>
+      金額一律填正數。
+    </p>
     <div class="scroll"><table>
-      <thead><tr><th>負責人</th><th>類別</th><th>性質</th><th>標的</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
+      <thead><tr><th>負責人</th><th>類別</th><th>性質</th><th>標的（備註）</th><th>計入至</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
       <tbody id="futBody"></tbody>
     </table></div>
     <div class="bar">
-      <button class="btn ghost small" id="addFut" type="button">＋ 新增一列（以下可新增）</button>
+      <button class="btn ghost small" id="addFut" type="button">＋ 新增一列</button>
       <button class="btn" id="saveFut" type="button">儲存</button>
-      <span class="note">儲存會整份取代試算表「未來」分頁的 A 到 F 欄。</span>
+      <span class="note">儲存會整份取代試算表「未來」分頁的 A 到 G 欄。</span>
     </div>
   </div>
 </section>
@@ -237,9 +242,11 @@ const OWNERS = ['倪端','葉芳瑜','雙方'];
 const ASSET_KINDS = ['股票','銀行','不動產','共同帳戶','虛擬貨幣','其他'];
 const LIAB_KINDS = ['貸款','其他'];
 const FUT_OWNERS = ['倪端','葉芳瑜','兩人'];
+const FUT_TYPES = ['收入','支出','投資'];
 const INCOME_KINDS = ['月薪','獎金','股利','其他收入'];
 const EXPENSE_KINDS = ['固定支出','其他支出'];
-const PERIOD_RE = /^(每月|每年(1[0-2]|[1-9])月|單次\d{4}\/(0?[1-9]|1[0-2]))$/;
+const FLOW_KINDS = ['股票','銀行','不動產','共同帳戶','虛擬貨幣','其他'];
+const PERIOD_RE = /^(每月|每年([1-9]|1[0-2])(,([1-9]|1[0-2]))*月|每隔[1-9][0-9]*月|單次\d{4}\/(0?[1-9]|1[0-2]))(\((\d{4}\/(0?[1-9]|1[0-2]))?~(\d{4}\/(0?[1-9]|1[0-2]))?\))?$/;
 const L = {net:'淨值（總資產－總負債）', proj:'預估淨值（月底）', assets:'總資產', debt:'總負債', delta:'淨值月增減',
            inc:'收入', fix:'固定支出', oth:'其他支出', flow:'淨現金流', cash:'現金可支應月數（銀行＋共同帳戶）', status:'狀態'};
 const CFG_KEY = 'family-finance-cfg';
@@ -648,19 +655,23 @@ $('btnSubmit').onclick = async () => {
 };
 
 /* ---------- 計算未來 ---------- */
+function kindsFor(type){ return type === '收入' ? INCOME_KINDS : type === '支出' ? EXPENSE_KINDS : FLOW_KINDS; }
 function addFutRow(d = {}){
-  const type = select(['收入','支出'], d.type);
-  const kind = select(type.value === '收入' ? INCOME_KINDS : EXPENSE_KINDS, d.kind);
-  type.onchange = () => { kind.replaceChildren(...(type.value === '收入' ? INCOME_KINDS : EXPENSE_KINDS).map(o => h('option',{value:o,text:o}))); };
-  const period = h('input', {type:'text', value:d.period || '', placeholder:'每月／每年4月／單次2027/9', list:'periods'});
+  const type = select(FUT_TYPES, d.type || '收入');
+  const kind = select(kindsFor(type.value), d.kind);
+  type.onchange = () => { kind.replaceChildren(...kindsFor(type.value).map(o => h('option',{value:o,text:o}))); };
+  const into = select(FLOW_KINDS, d.into);
+  const period = h('input', {type:'text', value:d.period || '', placeholder:'每月／每年3月／單次2027/9', list:'periods'});
   const tr = h('tr', {class:'row-f'});
   tr.append(h('td',null,select(FUT_OWNERS, d.owner)), h('td',null,type), h('td',null,kind),
-    h('td',null,h('input',{type:'text',value:d.name || '',placeholder:'標的'})), h('td',null,period),
+    h('td',null,h('input',{type:'text',value:d.name || '',placeholder:'備註，例：薪資、0050'})), h('td',null,into), h('td',null,period),
     h('td',null,h('input',{type:'number',step:'any',inputmode:'decimal',value:d.amount ?? ''})),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
   $('futBody').append(tr);
 }
-(function(){ const dl = h('datalist',{id:'periods'}); ['每月','每年4月','每年12月','單次2027/9'].forEach(v => dl.append(h('option',{value:v}))); document.body.append(dl); })();
+(function(){ const dl = h('datalist',{id:'periods'});
+  ['每月','每年3月','每年3,9月','每隔2月','單次2027/9','每月(2026/11~2030/6)'].forEach(v => dl.append(h('option',{value:v})));
+  document.body.append(dl); })();
 $('addFut').onclick = () => addFutRow();
 async function loadFuture(){
   const c = cget('getFuture');
@@ -674,11 +685,12 @@ $('saveFut').onclick = async () => {
   const rows = [];
   for (const tr of $('futBody').querySelectorAll('tr')){
     const c = tr.querySelectorAll('select,input');
-    rows.push({owner:c[0].value, type:c[1].value, kind:c[2].value, name:c[3].value.trim(), period:c[4].value.trim(), amount:c[5].value});
+    rows.push({owner:c[0].value, type:c[1].value, kind:c[2].value, name:c[3].value.trim(), into:c[4].value, period:c[5].value.trim(), amount:c[6].value});
   }
   for (const [i, r] of rows.entries()){
-    if (!r.name) return toast(`第 ${i+1} 列：請填標的`, true);
-    if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期請寫「每月」「每年4月」或「單次2027/9」`, true);
+    if (!r.name) return toast(`第 ${i+1} 列：請填標的（備註用）`, true);
+    if (!r.into) return toast(`第 ${i+1} 列：請選擇「計入至」`, true);
+    if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期格式不對，例如「每月」「每年3月」「每隔2月」「單次2027/9」，可加「(2026/11~2030/6)」限定起訖`, true);
     if (r.amount === '' || isNaN(Number(r.amount)) || Number(r.amount) < 0) return toast(`第 ${i+1} 列：金額請填正數`, true);
   }
   enqueue('saveFuture', {rows}, '計算未來');
