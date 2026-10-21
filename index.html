@@ -59,6 +59,10 @@
   .badge.est{background:var(--warn)}
   #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:8px;display:none;max-width:90vw;z-index:20}
   #toast.err{background:#b42318}
+  .hdr-r{display:flex;gap:8px;align-items:center}
+  header button.pill{font-size:12px;border-radius:999px;padding:3px 10px;opacity:.9}
+  header button.pill.pend{background:#f5c04a;color:#3a2a00;border-color:#f5c04a}
+  header button.pill.err{background:#b42318;border-color:#b42318}
   dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);width:min(460px,92vw)}
   dialog label{display:block;margin:10px 0 4px;font-weight:700}
   canvas{max-height:320px}
@@ -67,7 +71,8 @@
 <body>
 <header>
   <h1>家庭財務報表</h1>
-  <button id="btnSettings" type="button">設定</button>
+  <span class="hdr-r"><button id="syncPill" type="button" class="pill" title="按一下立即同步">雲端：–</button>
+  <button id="btnSettings" type="button">設定</button></span>
 </header>
 <nav id="tabs">
   <button data-tab="entry" class="on" type="button">填報</button>
@@ -206,17 +211,20 @@
 </dialog>
 <dialog id="dlg">
   <form method="dialog" id="cfgForm">
-    <h2 style="margin-top:0">後端設定</h2>
-    <p class="note">這兩項只存在這台裝置的瀏覽器，不會上傳到 GitHub。</p>
-    <label for="cfgUrl">Apps Script 網址（/exec 結尾）</label>
-    <input id="cfgUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec">
-    <label for="cfgToken">通行碼（後端有設才填）</label>
-    <input id="cfgToken" type="password" autocomplete="off">
+    <h2 style="margin-top:0">輸入通行碼</h2>
+    <p class="note">這台裝置第一次使用時輸入一次，之後會記住。通行碼只存在這台裝置的瀏覽器。</p>
+    <label for="cfgToken">通行碼</label>
+    <input id="cfgToken" type="password" autocomplete="current-password">
+    <details style="margin-top:10px"><summary class="note">進階：後端網址</summary>
+      <label for="cfgUrl">Apps Script 網址（/exec 結尾，留空使用預設）</label>
+      <input id="cfgUrl" type="url" placeholder="使用預設網址">
+    </details>
     <div class="bar">
-      <button class="btn" id="cfgSave" value="save" type="submit">儲存</button>
-      <button class="btn ghost" id="cfgTest" type="button">測試連線</button>
+      <button class="btn" id="cfgSave" value="save" type="submit">確定</button>
+      <button class="btn ghost" id="cfgTest" type="button">測試</button>
       <button class="btn ghost" value="cancel" type="submit" formnovalidate>關閉</button>
     </div>
+    <div class="bar"><button class="btn ghost small" id="cfgLogout" type="button">登出並清除這台裝置的資料</button></div>
     <div id="cfgMsg" class="note"></div>
   </form>
 </dialog>
@@ -235,6 +243,7 @@ const PERIOD_RE = /^(每月|每年(1[0-2]|[1-9])月|單次\d{4}\/(0?[1-9]|1[0-2]
 const L = {net:'淨值（總資產－總負債）', proj:'預估淨值（月底）', assets:'總資產', debt:'總負債', delta:'淨值月增減',
            inc:'收入', fix:'固定支出', oth:'其他支出', flow:'淨現金流', cash:'現金可支應月數（銀行＋共同帳戶）', status:'狀態'};
 const CFG_KEY = 'family-finance-cfg';
+const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwsXEMGzU2ejOG3HcYSU1sWhHUL3cLcX20Og36jFFG3ea2u4Jw_lDnfYlRRCkpDdkuy/exec';
 
 /* ---------- 小工具 ---------- */
 function h(tag, props, ...kids){
@@ -269,12 +278,15 @@ function select(options, value){
 function today(){ return new Date().toLocaleDateString('sv-SE'); } // yyyy-mm-dd（本地時區）
 
 /* ---------- 設定與 API ---------- */
-function loadCfg(){ try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch(e){ return {}; } }
+function loadCfg(){
+  let c = {}; try { c = JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch(e){}
+  return { url: c.url || DEFAULT_URL, token: c.token || '', customUrl: c.url || '' };
+}
 function saveCfg(c){ try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch(e){ toast('瀏覽器不允許儲存設定', true); } }
 
 async function api(action, payload, cfgOverride){
   const cfg = cfgOverride || loadCfg();
-  if (!cfg.url) { openSettings(); throw new Error('請先設定後端網址'); }
+  if (!cfg.token) { openSettings(); throw new Error('請先輸入通行碼'); }
   let res;
   if (payload === undefined){
     const u = new URL(cfg.url); u.searchParams.set('action', action);
@@ -286,35 +298,101 @@ async function api(action, payload, cfgOverride){
   }
   let j;
   try { j = await res.json(); } catch(e){ throw new Error('後端沒有回傳 JSON，請確認網址與部署權限（存取權＝所有人）'); }
-  if (!j.ok) throw new Error(j.error || '後端回報失敗');
+  if (!j.ok){ const er = new Error(j.error || '後端回報失敗'); er.server = true;
+    if (/通行碼/.test(er.message)) { er.server = false; if (!cfgOverride) openSettings(er.message); }
+    throw er; }
   return j.data;
 }
 
-function openSettings(){
-  const c = loadCfg(); $('cfgUrl').value = c.url || ''; $('cfgToken').value = c.token || ''; $('cfgMsg').textContent = '';
+function openSettings(msg){
+  const c = loadCfg(); $('cfgUrl').value = c.customUrl; $('cfgToken').value = c.token; $('cfgMsg').textContent = msg || '';
   if (!$('dlg').open) $('dlg').showModal();
 }
-$('btnSettings').onclick = openSettings;
+$('btnSettings').onclick = () => openSettings();
+$('cfgLogout').onclick = () => {
+  if (outbox.length && !confirm(`還有 ${outbox.length} 筆資料沒上傳，登出會一併刪除，確定嗎？`)) return;
+  ['family-finance-cfg','family-finance-cache','family-finance-outbox'].forEach(k => { try { localStorage.removeItem(k); } catch(e){} });
+  location.reload();
+};
 $('cfgForm').addEventListener('submit', ev => {
   if (ev.submitter && ev.submitter.value === 'save'){
-    saveCfg({url: $('cfgUrl').value.trim(), token: $('cfgToken').value});
-    toast('已儲存設定'); init(true);
+    saveCfg({url: $('cfgUrl').value.trim(), token: $('cfgToken').value.trim()});
+    toast('已儲存'); init(true);
   }
 });
 $('cfgTest').onclick = async () => {
   $('cfgMsg').textContent = '測試中…';
-  try { await api('ping', undefined, {url: $('cfgUrl').value.trim(), token: $('cfgToken').value}); $('cfgMsg').textContent = '連線成功'; }
+  try { await api('ping', undefined, {url: $('cfgUrl').value.trim() || DEFAULT_URL, token: $('cfgToken').value.trim()}); $('cfgMsg').textContent = '通行碼正確，連線成功'; }
   catch(e){ $('cfgMsg').textContent = '失敗：' + e.message; }
 };
+
+/* ---------- 本機優先：快取、待上傳佇列、同步狀態 ---------- */
+// 畫面一律先用本機暫存顯示，背景再向後端更新；寫入先存本機，背景上傳（失敗自動重試）。
+const CACHE_KEY = 'family-finance-cache', OUTBOX_KEY = 'family-finance-outbox';
+const cache = (() => { try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; } catch(e){ return {}; } })();
+function cget(k){ return cache[k]; }
+function cset(k, v){ cache[k] = v; try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch(e){} }
+let outbox = (() => { try { return JSON.parse(localStorage.getItem(OUTBOX_KEY)) || []; } catch(e){ return []; } })();
+function saveOutbox(){ try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox)); } catch(e){} }
+const sync = { busy: 0, last: null, err: '' };
+function pad2(n){ return String(n).padStart(2, '0'); }
+function setSync(){
+  const p = $('syncPill'); let t, c = '';
+  if (outbox.length){ t = sync.err ? `雲端：${outbox.length} 筆待上傳（重試中）` : `雲端：上傳中…（${outbox.length}）`; c = sync.err ? 'err' : 'pend'; }
+  else if (sync.busy) t = '雲端：更新中…';
+  else if (sync.err){ t = '雲端：連線失敗'; c = 'err'; }
+  else if (sync.last){ const d = new Date(sync.last); t = `雲端：已同步 ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+  else t = '雲端：–';
+  p.textContent = t; p.className = 'pill ' + c; p.title = sync.err ? sync.err : '按一下立即同步';
+}
+// 背景讀取：成功就更新快取，回傳資料；失敗回 null（畫面維持暫存內容）
+async function fresh(action, key){
+  sync.busy++; setSync();
+  try { const d = await api(action); cset(key || action, d); sync.last = Date.now(); if (!outbox.length) sync.err = ''; return d; }
+  catch(e){ sync.err = e.message; return null; }
+  finally { sync.busy--; setSync(); }
+}
+// 寫入：放進佇列（同一種寫入只留最新一份），立即嘗試上傳
+function enqueue(action, payload, key){
+  outbox = outbox.filter(o => o.key !== key);
+  outbox.push({ action, payload, key, at: Date.now() });
+  saveOutbox(); setSync(); flush();
+}
+let flushing = false, retryTimer = null;
+async function flush(){
+  if (flushing || !outbox.length || !loadCfg().token) return;
+  flushing = true; clearTimeout(retryTimer); setSync();
+  let wrote = false;
+  try {
+    while (outbox.length){
+      const o = outbox[0];
+      try { await api(o.action, o.payload); wrote = true; sync.err = ''; }
+      catch(e){
+        if (e.server){ toast(`後端拒絕「${o.key}」：${e.message}`, true); }   // 資料本身有問題：丟棄並提示
+        else { sync.err = e.message; retryTimer = setTimeout(flush, 30000); break; }   // 連線問題：30 秒後重試
+      }
+      outbox.shift(); saveOutbox(); setSync();
+    }
+  } finally { flushing = false; setSync(); }
+  if (wrote && !outbox.length){ sync.last = Date.now(); setSync(); afterWrite(); }
+}
+window.addEventListener('online', flush);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { flush(); } });
+// 寫入成功後：報表由試算表重算，背景重新抓
+async function afterWrite(){
+  const [L, T] = await Promise.all([fresh('getLatest'), fresh('getTargets')]);
+  if (L) state.dates = L.dates;
+  const R = await fresh('getReport'); if (R) applyReport(R);
+  const S = await fresh('getStatements'); if (S) applyStatements(S);
+}
 
 /* ---------- 分頁 ---------- */
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 function showTab(name){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
-  if (name === 'report' && !state.report) loadReport();
-  if (name === 'owners' && !state.report) loadReport();
-  if (name === 'statements' && !state.stmts) loadStatements();
+  if (name === 'report' || name === 'owners') loadReport();          // 先顯示暫存，再背景更新
+  if (name === 'statements') loadStatements();
   if (name === 'targets' && !state.targetsLoaded) loadTargetsTab();
   if (name === 'future' && !state.futureLoaded) loadFuture();
 }
@@ -490,15 +568,13 @@ $('addAsset').onclick = () => addAssetRow();
 $('addLiab').onclick = () => addLiabRow();
 
 async function loadTargets(){
-  try { const t = await api('getTargets'); state.targets = t.targets; state.targetsLoaded = true; }
-  catch(e){ toast(e.message + '（請確認後端 Code.gs 已更新並重新部署）', true); }
+  const t = await fresh('getTargets');
+  if (t){ state.targets = t.targets; state.targetsLoaded = true; }
+  return t;
 }
-async function loadEntry(){
-  $('entryDate').value = $('entryDate').value || today();
+function renderEntry(latest){
+  state.entryDirty = false;
   $('assetBody').replaceChildren(); $('liabBody').replaceChildren();
-  await loadTargets();
-  let latest = null;
-  try { latest = await api('getLatest'); } catch(e){ toast(e.message, true); }
   const assets = latest && latest.assets.length ? latest.assets : DEFAULT_ASSETS;
   const liabs = latest && latest.liabilities.length ? latest.liabilities : DEFAULT_LIABS;
   state.dates = latest ? latest.dates : [];
@@ -507,6 +583,21 @@ async function loadEntry(){
   $('dateInfo').textContent = latest && latest.assetDate ? '上次填報：' + latest.assetDate : '尚無歷史快照';
   checkDate();
 }
+async function loadEntry(){
+  $('entryDate').value = $('entryDate').value || today();
+  const cl = cget('getLatest'), ct = cget('getTargets');
+  if (ct){ state.targets = ct.targets; state.targetsLoaded = true; }
+  if (cl || ct) renderEntry(cl || null); else $('dateInfo').textContent = '載入中…';
+  const [L, T] = await Promise.all([fresh('getLatest'), loadTargets()]);
+  if (!L && !T){ if (!cl) renderEntry(null); return; }
+  const changed = JSON.stringify(L) !== JSON.stringify(cl) || JSON.stringify(T) !== JSON.stringify(ct);
+  if (!changed) return;
+  if (outbox.some(o => o.action === 'submit')) return;          // 本機還有未上傳的填報，以本機為準
+  if (!state.entryDirty || !(cl || ct)) renderEntry(L || cl || null);
+  else { refreshTargetSelects(); toast('雲端有較新的資料；目前畫面未覆蓋，送出或重新整理後會更新'); }
+}
+// 使用者開始編輯填報表格後，背景更新不覆蓋畫面
+['assetBody','liabBody'].forEach(id => $(id).addEventListener('input', () => { state.entryDirty = true; }));
 function checkDate(){
   const d = $('entryDate').value.replaceAll('-', '/');
   $('dateWarn').hidden = !state.dates.includes(d);
@@ -541,14 +632,19 @@ $('btnSubmit').onclick = async () => {
     if (Number(r.amount) < 0) return toast(`負債第 ${i+1} 列：金額請填正數`, true);
   }
   if (state.dates.includes(date) && !confirm(`${date} 已有快照，要覆蓋嗎？`)) return;
-  const b = $('btnSubmit'); b.disabled = true;
-  try {
-    const clean = assets.map(({extra, parentName, ...r}) => r);
-    const r = await api('submit', {date, assets: clean, liabilities: liabs});
-    toast(`已寫入 ${r.date}：資產 ${r.assetRows} 列、負債 ${r.liabilityRows} 列`);
-    state.report = null; state.stmts = null; await loadEntry();
-  } catch(e){ toast(e.message, true); }
-  finally { b.disabled = false; }
+  const clean = assets.map(({extra, parentName, ...r}) => r);
+  enqueue('submit', {date, assets: clean, liabilities: liabs}, '填報 ' + date);
+  // 本機暫存直接換成這次的內容，下次打開馬上看到
+  const asNum = v => fnum(v);
+  const la = clean.map(r => Object.assign({}, r, { units:asNum(r.units), price:asNum(r.price), costPrice:asNum(r.costPrice), fx:asNum(r.fx), costFx:asNum(r.costFx) }));
+  const prev = cget('getLatest') || {};
+  const dates = [...new Set([...(prev.dates || []), date])].sort();
+  const lastDate = dates[dates.length - 1];
+  if (date === lastDate) cset('getLatest', Object.assign({}, prev, { dates, assetDate: date, liabDate: date, assets: la,
+    liabilities: liabs.map(l => Object.assign({}, l, { amount: Number(l.amount) })) }));
+  else cset('getLatest', Object.assign({}, prev, { dates }));
+  state.dates = dates; state.entryDirty = false; checkDate();
+  toast(`已存好 ${date} 的填報，背景上傳中（右上角顯示進度）`);
 };
 
 /* ---------- 計算未來 ---------- */
@@ -567,10 +663,12 @@ function addFutRow(d = {}){
 (function(){ const dl = h('datalist',{id:'periods'}); ['每月','每年4月','每年12月','單次2027/9'].forEach(v => dl.append(h('option',{value:v}))); document.body.append(dl); })();
 $('addFut').onclick = () => addFutRow();
 async function loadFuture(){
-  try {
-    const rows = await api('getFuture');
-    $('futBody').replaceChildren(); rows.forEach(addFutRow); state.futureLoaded = true;
-  } catch(e){ toast(e.message, true); }
+  const c = cget('getFuture');
+  if (c){ $('futBody').replaceChildren(); c.forEach(addFutRow); state.futureLoaded = true; }
+  const rows = await fresh('getFuture');
+  if (!rows || outbox.some(o => o.action === 'saveFuture')) return;
+  if (JSON.stringify(rows) !== JSON.stringify(c)){ $('futBody').replaceChildren(); rows.forEach(addFutRow); }
+  state.futureLoaded = true;
 }
 $('saveFut').onclick = async () => {
   const rows = [];
@@ -583,24 +681,29 @@ $('saveFut').onclick = async () => {
     if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期請寫「每月」「每年4月」或「單次2027/9」`, true);
     if (r.amount === '' || isNaN(Number(r.amount)) || Number(r.amount) < 0) return toast(`第 ${i+1} 列：金額請填正數`, true);
   }
-  const b = $('saveFut'); b.disabled = true;
-  try { const r = await api('saveFuture', {rows}); toast(`已儲存 ${r.saved} 列`); state.report = null; state.stmts = null; }
-  catch(e){ toast(e.message, true); }
-  finally { b.disabled = false; }
+  enqueue('saveFuture', {rows}, '計算未來');
+  cset('getFuture', rows.map(r => Object.assign({}, r, { amount: Number(r.amount) })));
+  toast(`已存好 ${rows.length} 列，背景上傳中`);
 };
 
 /* ---------- 報表 ---------- */
-async function loadReport(){
-  $('reportInfo').textContent = '載入中…';
-  try {
-    state.report = await api('getReport');
+function applyReport(R){
+  if (!R || !R.months) return;
+  state.report = R;
     const years = [...new Set(state.report.months.map(m => m.slice(0,4)))];
     const sel = $('fromYear'); const cur = sel.value;
     sel.replaceChildren(h('option',{value:'',text:'全部'}), ...years.map(y => h('option',{value:y,text:y})));
     sel.value = years.includes(cur) ? cur : '';
     $('reportInfo').textContent = '更新時間 ' + new Date(state.report.generatedAt).toLocaleString('zh-TW');
     renderReport(); renderOwners();
-  } catch(e){ $('reportInfo').textContent = ''; toast(e.message, true); }
+}
+async function loadReport(){
+  const c = cget('getReport');
+  if (c) applyReport(c); else $('reportInfo').textContent = '載入中…';
+  const R = await fresh('getReport');
+  if (R && JSON.stringify(R.rows) !== JSON.stringify(state.report && state.report.rows)) applyReport(R);
+  else if (R) { state.report.generatedAt = R.generatedAt; $('reportInfo').textContent = '更新時間 ' + new Date(R.generatedAt).toLocaleString('zh-TW'); }
+  else if (!c) $('reportInfo').textContent = '';
 }
 $('btnReload').onclick = loadReport;
 $('fromYear').onchange = () => state.report && renderReport();
@@ -670,13 +773,17 @@ const STMT_NOTES = {
   incomeStatement: '現金基礎的收支結餘；支出以括號（負數）表示。下半部把淨值變動拆成「本期損益」與「投資損益、貸款本金及其他」。',
   cashFlow: '營業活動取自收支記錄；投資與融資活動由資產負債表餘額變動推算（市值漲跌會混入投資活動）。「其他／未分類差額」很大時，代表收支可能有漏記。'
 };
+function applyStatements(S){
+  if (!S || !S.balanceSheet) return;
+  state.stmts = S;
+  $('stmtInfo').textContent = '更新時間 ' + new Date(S.generatedAt).toLocaleString('zh-TW');
+  renderStatement();
+}
 async function loadStatements(){
-  $('stmtInfo').textContent = '載入中…';
-  try {
-    state.stmts = await api('getStatements');
-    $('stmtInfo').textContent = '更新時間 ' + new Date(state.stmts.generatedAt).toLocaleString('zh-TW');
-    renderStatement();
-  } catch(e){ $('stmtInfo').textContent = ''; toast(e.message, true); }
+  const c = cget('getStatements');
+  if (c) applyStatements(c); else $('stmtInfo').textContent = '載入中…';
+  const S = await fresh('getStatements');
+  if (S) applyStatements(S); else if (!c) $('stmtInfo').textContent = '';
 }
 $('btnStmtReload').onclick = loadStatements;
 $('stmtSel').onchange = () => state.stmts && renderStatement();
@@ -718,6 +825,12 @@ function renderStatement(){
 }
 
 /* ---------- 標的：建立與管理 ---------- */
+function setTargets(rows){
+  state.targets = rows; state.targetsLoaded = true;
+  cset('getTargets', { targets: rows });
+  enqueue('saveTargets', { rows }, '標的清單');
+  refreshTargetSelects();
+}
 const KINDS_BY_CAT = { '資產': ASSET_KINDS, '負債': LIAB_KINDS };
 function openTargetDialog(cat, done){
   $('tgtTitle').textContent = '建立' + cat + '標的'; $('tgtMsg').textContent = ''; $('tgtName').value = '';
@@ -739,15 +852,9 @@ $('tgtForm').addEventListener('submit', async ev => {
   if (name.includes(SEP)) return fail(`標的名稱不可包含「${SEP}」`);
   if (findTarget(cat, tkey($('tgtOwner').value, name))) return fail(`「${name}」（${$('tgtOwner').value}）已經存在，請直接從選單選取（若已停用，請到「標的」分頁改回使用中）`);
   const row = { cat, owner:$('tgtOwner').value, kind:$('tgtKind').value, name, unit: cat === '資產' ? $('tgtUnit').value : '', status:'使用中' };
-  const b = $('tgtOk'); b.disabled = true;
-  try {
-    await api('saveTargets', { rows: [...state.targets, row] });
-    state.targets = [...state.targets, row]; state.targetsLoaded = true;
-    refreshTargetSelects(); renderTargets();
-    const d = $('dlgTarget'); if (d.close) d.close(); else d.removeAttribute('open');
-    if (done) done(tkey(row.owner, name));
-  } catch(e){ fail(e.message); }
-  finally { b.disabled = false; }
+  setTargets([...state.targets, row]); renderTargets();
+  const d = $('dlgTarget'); if (d.close) d.close(); else d.removeAttribute('open');
+  if (done) done(tkey(row.owner, name));
 });
 
 function addTargetRow(t = {}){
@@ -769,7 +876,12 @@ function addTargetRow(t = {}){
   $('tgtBody').append(tr);
 }
 function renderTargets(){ $('tgtBody').replaceChildren(); state.targets.forEach(addTargetRow); }
-async function loadTargetsTab(){ await loadTargets(); renderTargets(); }
+async function loadTargetsTab(){
+  const c = cget('getTargets');
+  if (c){ state.targets = c.targets; state.targetsLoaded = true; renderTargets(); }
+  const t = await loadTargets();
+  if (t && !outbox.some(o => o.action === 'saveTargets') && JSON.stringify(t) !== JSON.stringify(c)) renderTargets();
+}
 $('addTgt').onclick = () => addTargetRow();
 $('reloadTgt').onclick = loadTargetsTab;
 $('saveTgt').onclick = async () => {
@@ -780,18 +892,23 @@ $('saveTgt').onclick = async () => {
     if (r.name.includes(SEP)) return toast(`第 ${i+1} 列：標的名稱不可包含「${SEP}」`, true);
     const k = r.cat + '|' + r.owner + '|' + r.name; if (seen.has(k)) return toast(`第 ${i+1} 列：「${r.name}」（${r.owner}）重複了，同一負責人不能有相同標的`, true); seen.add(k);
   }
-  const b = $('saveTgt'); b.disabled = true;
-  try { const r = await api('saveTargets', {rows}); state.targets = rows; refreshTargetSelects(); toast(`已儲存 ${r.saved} 個標的`); }
-  catch(e){ toast(e.message, true); }
-  finally { b.disabled = false; }
+  setTargets(rows);
+  toast(`已存好 ${rows.length} 個標的，背景上傳中`);
 };
 
 /* ---------- 啟動 ---------- */
 async function init(force){
-  if (!loadCfg().url){ openSettings(); return; }
+  if (!loadCfg().token){ openSettings(); return; }
   state.report = null; state.stmts = null; state.futureLoaded = false;
+  setSync(); flush();
   await loadEntry();
+  // 背景預先抓報表，切到月報／三表時直接有資料
+  if (!outbox.length){
+    if (!state.report){ const R = await fresh('getReport'); if (R && !state.report) applyReport(R); }
+    if (!state.stmts){ const S = await fresh('getStatements'); if (S && !state.stmts) applyStatements(S); }
+  }
 }
+$('syncPill').onclick = () => { if (outbox.length) flush(); else { afterWrite(); } };
 $('entryDate').value = today();
 if ($('assetBody').children.length === 0) { DEFAULT_ASSETS.forEach(x => addAssetRow(x)); DEFAULT_LIABS.forEach(x => addLiabRow(x)); }
 init();
