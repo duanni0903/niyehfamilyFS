@@ -689,9 +689,9 @@ function addFutRow(d = {}){
   const invTd = h('td', null, invSel);
   function syncInv(){
     const show = needsInvTarget(type.value, kind.value);
-    invTd.style.display = show ? '' : 'none';
+    invSel.disabled = !show;
     if (show) fillInvTargetOptions(invSel, kind.value, invSel.value || invCur);
-    else invSel.replaceChildren();
+    else invSel.replaceChildren(h('option', {value:'', text:'–'}));
   }
   type.onchange = () => { kind.replaceChildren(...kindsFor(type.value).map(o => h('option',{value:o,text:o}))); syncInv(); };
   kind.onchange = syncInv;
