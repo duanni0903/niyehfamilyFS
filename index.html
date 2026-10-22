@@ -123,9 +123,10 @@
   <div class="card">
     <h2>標的管理</h2>
     <p class="note">先在這裡建立標的，填報時只要從下拉選單選標的，負責人、性質、單位會自動帶入。<br>
-      改名只影響之後的填報、舊資料維持原名；要改名請新增新標的，並把舊的設為「停用」。停用的標的不會出現在選單，歷史資料保留。</p>
+      改名只影響之後的填報、舊資料維持原名；要改名請新增新標的，並把舊的設為「停用」。停用的標的不會出現在選單，歷史資料保留。<br>
+      <b>年報酬率</b>（選填，只有資產用得到）：用來估計股票、虛擬貨幣等未來的成長，小數表示（年化 5% 填 0.05）。股利已經算再投入，不用另外填。月報、日報表的預估會依目前持股比例，用加權平均報酬率計算。</p>
     <div class="scroll"><table>
-      <thead><tr><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>狀態</th><th></th></tr></thead>
+      <thead><tr><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>年報酬率</th><th>狀態</th><th></th></tr></thead>
       <tbody id="tgtBody"></tbody>
     </table></div>
     <div class="bar">
@@ -182,12 +183,13 @@
     <h2>計算未來（收入、支出、投資）</h2>
     <p class="note">
       <b>計入至</b>：收入存進哪個性質、支出／投資從哪個性質扣；投資會同時把錢加進「性質」欄指定的性質（例如從銀行買股票）。<br>
+      <b>投資標的</b>：投資到股票／虛擬貨幣時，要指定是哪一個標的（才能各自算複利成長），請先到「標的管理」建立好要投資的標的。<br>
       <b>週期</b>寫法：<code>每月</code>、<code>每年3月</code>、<code>每年3,9月</code>（多個月）、<code>每隔2月</code>、<code>單次2027/9</code>，
       都可以再加「<code>(起/訖)</code>」限定時間，例如 <code>每月(2026/11~2030/6)</code>、<code>每月(2026/11~)</code>、<code>每年3月(~2045/3)</code>。<br>
       金額一律填正數。
     </p>
     <div class="scroll"><table>
-      <thead><tr><th>負責人</th><th>類別</th><th>性質</th><th>標的（備註）</th><th>計入至</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
+      <thead><tr><th>負責人</th><th>類別</th><th>性質</th><th>投資標的</th><th>標的（備註）</th><th>計入至</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
       <tbody id="futBody"></tbody>
     </table></div>
     <div class="bar">
@@ -206,7 +208,8 @@
     <label for="tgtOwner">負責人</label><select id="tgtOwner"></select>
     <label for="tgtKind">性質</label><select id="tgtKind"></select>
     <label for="tgtName">標的名稱</label><input id="tgtName" type="text" placeholder="例：TSLA、元大銀行、威均川玥">
-    <div id="tgtUnitWrap"><label for="tgtUnit">單位</label><select id="tgtUnit"></select></div>
+    <div id="tgtUnitWrap"><label for="tgtUnit">單位</label><select id="tgtUnit"></select>
+    <label for="tgtRate">年報酬率（選填，小數，5%填0.05）</label><input id="tgtRate" type="number" step="any" placeholder="例：0.05"></div>
     <div class="bar">
       <button class="btn" id="tgtOk" value="ok" type="submit">建立</button>
       <button class="btn ghost" value="cancel" type="submit" formnovalidate>取消</button>
@@ -246,6 +249,7 @@ const FUT_TYPES = ['收入','支出','投資'];
 const INCOME_KINDS = ['月薪','獎金','股利','其他收入'];
 const EXPENSE_KINDS = ['固定支出','其他支出'];
 const FLOW_KINDS = ['股票','銀行','不動產','共同帳戶','虛擬貨幣','其他'];
+const TARGET_LEVEL_KINDS = ['股票','虛擬貨幣'];
 const PERIOD_RE = /^(每月|每年([1-9]|1[0-2])(,([1-9]|1[0-2]))*月|每隔[1-9][0-9]*月|單次\d{4}\/(0?[1-9]|1[0-2]))(\((\d{4}\/(0?[1-9]|1[0-2]))?~(\d{4}\/(0?[1-9]|1[0-2]))?\))?$/;
 const L = {net:'淨值（總資產－總負債）', proj:'預估淨值（月底）', assets:'總資產', debt:'總負債', delta:'淨值月增減',
            inc:'收入', fix:'固定支出', oth:'其他支出', flow:'淨現金流', cash:'現金可支應月數（銀行＋共同帳戶）', status:'狀態'};
@@ -400,7 +404,7 @@ function showTab(name){
   document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
   if (name === 'report' || name === 'owners') loadReport();          // 先顯示暫存，再背景更新
   if (name === 'statements') loadStatements();
-  if (name === 'targets' && !state.targetsLoaded) loadTargetsTab();
+  if (name === 'targets' && !$('tgtBody').children.length) loadTargetsTab();
   if (name === 'future' && !state.futureLoaded) loadFuture();
 }
 
@@ -490,7 +494,13 @@ function fillTargetOptions(sel){
   sel.value = (cur && opts.some(o => o.value === cur)) ? cur : '';
   sel._prev = sel.value;
 }
-function refreshTargetSelects(){ document.querySelectorAll('select.tsel').forEach(fillTargetOptions); }
+function refreshTargetSelects(){
+  document.querySelectorAll('select.tsel').forEach(fillTargetOptions);
+  document.querySelectorAll('#futBody tr').forEach(tr => {
+    const kindEl = tr.querySelector('[data-f="kind"]'), invEl = tr.querySelector('[data-f="invTarget"]');
+    if (kindEl && invEl) fillInvTargetOptions(invEl, kindEl.value, invEl.value);
+  });
+}
 function targetSelect(cat, current, onPick){          // current = {owner, name}
   const sel = h('select', {class:'tsel'}); sel._cat = cat;
   const cur = current && current.name ? tkey(current.owner, current.name) : '';
@@ -576,7 +586,7 @@ $('addLiab').onclick = () => addLiabRow();
 
 async function loadTargets(){
   const t = await fresh('getTargets');
-  if (t){ state.targets = t.targets; state.targetsLoaded = true; }
+  if (t){ state.targets = t.targets; state.targetsLoaded = true; refreshTargetSelects(); }
   return t;
 }
 function renderEntry(latest){
@@ -656,17 +666,39 @@ $('btnSubmit').onclick = async () => {
 
 /* ---------- 計算未來 ---------- */
 function kindsFor(type){ return type === '收入' ? INCOME_KINDS : type === '支出' ? EXPENSE_KINDS : FLOW_KINDS; }
+function needsInvTarget(type, kind){ return type === '投資' && TARGET_LEVEL_KINDS.includes(kind); }
+function fillInvTargetOptions(sel, kind, cur){
+  const list = state.targets.filter(t => t.cat === '資產' && t.kind === kind && t.status === '使用中');
+  const opts = [h('option', {value:'', text:'請選擇標的'}), ...list.map(t => h('option', {value:tkey(t.owner, t.name), text:`${t.name}（${t.owner}）`}))];
+  if (cur && !list.some(t => tkey(t.owner, t.name) === cur)){
+    const [o, n] = cur.split(KSEP); if (n) opts.push(h('option', {value:cur, text:`${n}（${o}，未在清單）`}));
+  }
+  sel.replaceChildren(...opts);
+  sel.value = opts.some(o => o.value === cur) ? cur : '';
+}
 function addFutRow(d = {}){
-  const type = select(FUT_TYPES, d.type || '收入');
-  const kind = select(kindsFor(type.value), d.kind);
-  type.onchange = () => { kind.replaceChildren(...kindsFor(type.value).map(o => h('option',{value:o,text:o}))); };
-  const into = select(FLOW_KINDS, d.into);
-  const period = h('input', {type:'text', value:d.period || '', placeholder:'每月／每年3月／單次2027/9', list:'periods'});
+  const type = tag(select(FUT_TYPES, d.type || '收入'), 'type');
+  const kind = tag(select(kindsFor(type.value), d.kind), 'kind');
+  const into = tag(select(FLOW_KINDS, d.into), 'into');
+  const period = tag(h('input', {type:'text', value:d.period || '', placeholder:'每月／每年3月／單次2027/9', list:'periods'}), 'period');
+  const amount = tag(h('input', {type:'number', step:'any', inputmode:'decimal', value:d.amount ?? ''}), 'amount');
+  const name = tag(h('input', {type:'text', value:d.name || '', placeholder:'備註，例：薪資、0050'}), 'name');
+  const owner = tag(select(FUT_OWNERS, d.owner), 'owner');
+  const invCur = d.invTargetOwner && d.invTargetName ? tkey(d.invTargetOwner, d.invTargetName) : '';
+  const invSel = tag(h('select'), 'invTarget');
+  const invTd = h('td', null, invSel);
+  function syncInv(){
+    const show = needsInvTarget(type.value, kind.value);
+    invTd.style.display = show ? '' : 'none';
+    if (show) fillInvTargetOptions(invSel, kind.value, invSel.value || invCur);
+    else invSel.replaceChildren();
+  }
+  type.onchange = () => { kind.replaceChildren(...kindsFor(type.value).map(o => h('option',{value:o,text:o}))); syncInv(); };
+  kind.onchange = syncInv;
   const tr = h('tr', {class:'row-f'});
-  tr.append(h('td',null,select(FUT_OWNERS, d.owner)), h('td',null,type), h('td',null,kind),
-    h('td',null,h('input',{type:'text',value:d.name || '',placeholder:'備註，例：薪資、0050'})), h('td',null,into), h('td',null,period),
-    h('td',null,h('input',{type:'number',step:'any',inputmode:'decimal',value:d.amount ?? ''})),
+  tr.append(h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,name), h('td',null,into), h('td',null,period), h('td',null,amount),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
+  syncInv();
   $('futBody').append(tr);
 }
 (function(){ const dl = h('datalist',{id:'periods'});
@@ -684,12 +716,18 @@ async function loadFuture(){
 $('saveFut').onclick = async () => {
   const rows = [];
   for (const tr of $('futBody').querySelectorAll('tr')){
-    const c = tr.querySelectorAll('select,input');
-    rows.push({owner:c[0].value, type:c[1].value, kind:c[2].value, name:c[3].value.trim(), into:c[4].value, period:c[5].value.trim(), amount:c[6].value});
+    const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? e.value : ''; };
+    const invKey = g('invTarget');
+    const [invOwner, invName] = invKey ? [invKey.split(KSEP)[0], nameOfKey(invKey)] : ['', ''];
+    rows.push({
+      owner: g('owner'), type: g('type'), kind: g('kind'), name: g('name').trim(), into: g('into'),
+      period: g('period').trim(), amount: g('amount'), invTargetOwner: invOwner, invTargetName: invName
+    });
   }
   for (const [i, r] of rows.entries()){
     if (!r.name) return toast(`第 ${i+1} 列：請填標的（備註用）`, true);
     if (!r.into) return toast(`第 ${i+1} 列：請選擇「計入至」`, true);
+    if (needsInvTarget(r.type, r.kind) && !r.invTargetName) return toast(`第 ${i+1} 列：投資到「${r.kind}」要指定一個標的`, true);
     if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期格式不對，例如「每月」「每年3月」「每隔2月」「單次2027/9」，可加「(2026/11~2030/6)」限定起訖`, true);
     if (r.amount === '' || isNaN(Number(r.amount)) || Number(r.amount) < 0) return toast(`第 ${i+1} 列：金額請填正數`, true);
   }
@@ -845,7 +883,7 @@ function setTargets(rows){
 }
 const KINDS_BY_CAT = { '資產': ASSET_KINDS, '負債': LIAB_KINDS };
 function openTargetDialog(cat, done){
-  $('tgtTitle').textContent = '建立' + cat + '標的'; $('tgtMsg').textContent = ''; $('tgtName').value = '';
+  $('tgtTitle').textContent = '建立' + cat + '標的'; $('tgtMsg').textContent = ''; $('tgtName').value = ''; $('tgtRate').value = '';
   const fill = (sel, list) => sel.replaceChildren(...list.map(o => h('option', {value:o, text:o})));
   fill($('tgtOwner'), OWNERS); fill($('tgtKind'), KINDS_BY_CAT[cat]);
   $('tgtUnitWrap').hidden = cat !== '資產';
@@ -863,7 +901,8 @@ $('tgtForm').addEventListener('submit', async ev => {
   if (!name) return fail('請填標的名稱');
   if (name.includes(SEP)) return fail(`標的名稱不可包含「${SEP}」`);
   if (findTarget(cat, tkey($('tgtOwner').value, name))) return fail(`「${name}」（${$('tgtOwner').value}）已經存在，請直接從選單選取（若已停用，請到「標的」分頁改回使用中）`);
-  const row = { cat, owner:$('tgtOwner').value, kind:$('tgtKind').value, name, unit: cat === '資產' ? $('tgtUnit').value : '', status:'使用中' };
+  const row = { cat, owner:$('tgtOwner').value, kind:$('tgtKind').value, name, unit: cat === '資產' ? $('tgtUnit').value : '',
+    rate: cat === '資產' && $('tgtRate').value !== '' ? Number($('tgtRate').value) : '', status:'使用中' };
   setTargets([...state.targets, row]); renderTargets();
   const d = $('dlgTarget'); if (d.close) d.close(); else d.removeAttribute('open');
   if (done) done(tkey(row.owner, name));
@@ -874,17 +913,19 @@ function addTargetRow(t = {}){
   const owner = select(OWNERS, t.owner);
   const kind = h('select'); const unit = h('select');
   const name = h('input', {type:'text', value:t.name || '', placeholder:'標的名稱'});
+  const rate = h('input', {type:'number', step:'any', value:(t.rate === null || t.rate === undefined) ? '' : t.rate, placeholder:'例：0.05'});
   const status = select(['使用中','停用'], t.status);
   const tr = h('tr', {class: 'row-f'});
   const syncKind = keep => { kind.replaceChildren(...KINDS_BY_CAT[cat.value].map(o => h('option',{value:o,text:o}))); if (keep && KINDS_BY_CAT[cat.value].includes(keep)) kind.value = keep; };
-  const syncUnit = keep => { unit.disabled = cat.value !== '資產';
+  const syncUnit = keep => { unit.disabled = cat.value !== '資產'; rate.disabled = cat.value !== '資產';
     if (cat.value === '資產') setUnitOptions(unit, kind.value, keep); else unit.replaceChildren(h('option',{value:'',text:'–'})); };
   syncKind(t.kind); syncUnit(t.unit);
-  cat.onchange = () => { syncKind(null); syncUnit(null); };
+  cat.onchange = () => { syncKind(null); syncUnit(null); if (cat.value !== '資產') rate.value = ''; };
   kind.onchange = () => { const list = UNITS[kind.value] || ['單位']; syncUnit(list.includes(unit.value) ? unit.value : null); };
-  tr.append(h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,status),
+  tr.append(h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,rate), h('td',null,status),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => tr.remove()})));
-  tr._read = () => ({ cat:cat.value, owner:owner.value, kind:kind.value, name:name.value.trim(), unit:unit.value, status:status.value });
+  tr._read = () => ({ cat:cat.value, owner:owner.value, kind:kind.value, name:name.value.trim(), unit:unit.value,
+    rate: cat.value === '資產' && rate.value !== '' ? Number(rate.value) : '', status:status.value });
   $('tgtBody').append(tr);
 }
 function renderTargets(){ $('tgtBody').replaceChildren(); state.targets.forEach(addTargetRow); }
