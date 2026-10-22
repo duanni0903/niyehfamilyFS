@@ -183,7 +183,8 @@
     <h2>計算未來（收入、支出、投資）</h2>
     <p class="note">
       <b>計入至</b>：收入存進哪個性質、支出／投資從哪個性質扣；投資會同時把錢加進「性質」欄指定的性質（例如從銀行買股票）。<br>
-      <b>投資標的</b>：投資到股票／虛擬貨幣時，要指定是哪一個標的（才能各自算複利成長），請先到「標的管理」建立好要投資的標的。<br>
+      <b>投資標的</b>：性質或計入至是股票／虛擬貨幣時會出現。「投資」類別一定要指定標的；「收入」「支出」類別可以選填——
+      有指定就精確算進那個標的的複利成長，不指定就按該性質整體的加權平均報酬率估算。請先到「標的管理」建立好標的。<br>
       <b>週期</b>寫法：<code>每月</code>、<code>每年3月</code>、<code>每年3,9月</code>（多個月）、<code>每隔2月</code>、<code>單次2027/9</code>，
       都可以再加「<code>(起/訖)</code>」限定時間，例如 <code>每月(2026/11~2030/6)</code>、<code>每月(2026/11~)</code>、<code>每年3月(~2045/3)</code>。<br>
       金額一律填正數。
@@ -497,8 +498,9 @@ function fillTargetOptions(sel){
 function refreshTargetSelects(){
   document.querySelectorAll('select.tsel').forEach(fillTargetOptions);
   document.querySelectorAll('#futBody tr').forEach(tr => {
-    const kindEl = tr.querySelector('[data-f="kind"]'), invEl = tr.querySelector('[data-f="invTarget"]');
-    if (kindEl && invEl) fillInvTargetOptions(invEl, kindEl.value, invEl.value);
+    const typeEl = tr.querySelector('[data-f="type"]'), kindEl = tr.querySelector('[data-f="kind"]'),
+      intoEl = tr.querySelector('[data-f="into"]'), invEl = tr.querySelector('[data-f="invTarget"]');
+    if (typeEl && kindEl && intoEl && invEl && !invEl.disabled) fillInvTargetOptions(invEl, invTargetKindField(typeEl.value, kindEl.value, intoEl.value), invEl.value);
   });
 }
 function targetSelect(cat, current, onPick){          // current = {owner, name}
@@ -666,7 +668,10 @@ $('btnSubmit').onclick = async () => {
 
 /* ---------- 計算未來 ---------- */
 function kindsFor(type){ return type === '收入' ? INCOME_KINDS : type === '支出' ? EXPENSE_KINDS : FLOW_KINDS; }
-function needsInvTarget(type, kind){ return type === '投資' && TARGET_LEVEL_KINDS.includes(kind); }
+// 投資：性質（買什麼）決定要不要挑標的，且一定要挑；收入/支出：計入至（存進/扣出哪個性質）決定要不要挑，但選填（不填就按性質整體的加權平均估）
+function invTargetKindField(type, kind, into){ return type === '投資' ? kind : into; }
+function needsInvTarget(type, kind, into){ return TARGET_LEVEL_KINDS.includes(invTargetKindField(type, kind, into)); }
+function invTargetRequired(type, kind, into){ return type === '投資' && needsInvTarget(type, kind, into); }
 function fillInvTargetOptions(sel, kind, cur){
   const list = state.targets.filter(t => t.cat === '資產' && t.kind === kind && t.status === '使用中');
   const opts = [h('option', {value:'', text:'請選擇標的'}), ...list.map(t => h('option', {value:tkey(t.owner, t.name), text:`${t.name}（${t.owner}）`}))];
@@ -688,13 +693,14 @@ function addFutRow(d = {}){
   const invSel = tag(h('select'), 'invTarget');
   const invTd = h('td', null, invSel);
   function syncInv(){
-    const show = needsInvTarget(type.value, kind.value);
+    const show = needsInvTarget(type.value, kind.value, into.value);
     invSel.disabled = !show;
-    if (show) fillInvTargetOptions(invSel, kind.value, invSel.value || invCur);
+    if (show) fillInvTargetOptions(invSel, invTargetKindField(type.value, kind.value, into.value), invSel.value || invCur);
     else invSel.replaceChildren(h('option', {value:'', text:'–'}));
   }
   type.onchange = () => { kind.replaceChildren(...kindsFor(type.value).map(o => h('option',{value:o,text:o}))); syncInv(); };
   kind.onchange = syncInv;
+  into.onchange = syncInv;
   const tr = h('tr', {class:'row-f'});
   tr.append(h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,name), h('td',null,into), h('td',null,period), h('td',null,amount),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
@@ -727,7 +733,7 @@ $('saveFut').onclick = async () => {
   for (const [i, r] of rows.entries()){
     if (!r.name) return toast(`第 ${i+1} 列：請填標的（備註用）`, true);
     if (!r.into) return toast(`第 ${i+1} 列：請選擇「計入至」`, true);
-    if (needsInvTarget(r.type, r.kind) && !r.invTargetName) return toast(`第 ${i+1} 列：投資到「${r.kind}」要指定一個標的`, true);
+    if (invTargetRequired(r.type, r.kind, r.into) && !r.invTargetName) return toast(`第 ${i+1} 列：投資到「${r.kind}」要指定一個標的`, true);
     if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期格式不對，例如「每月」「每年3月」「每隔2月」「單次2027/9」，可加「(2026/11~2030/6)」限定起訖`, true);
     if (r.amount === '' || isNaN(Number(r.amount)) || Number(r.amount) < 0) return toast(`第 ${i+1} 列：金額請填正數`, true);
   }
