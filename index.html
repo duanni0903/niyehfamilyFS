@@ -124,9 +124,9 @@
     <h2>標的管理</h2>
     <p class="note">先在這裡建立標的，填報時只要從下拉選單選標的，負責人、性質、單位會自動帶入。<br>
       改名只影響之後的填報、舊資料維持原名；要改名請新增新標的，並把舊的設為「停用」。停用的標的不會出現在選單，歷史資料保留。<br>
-      <b>年報酬率</b>（選填，只有資產用得到）：用來估計股票、虛擬貨幣等未來的成長，小數表示（年化 5% 填 0.05）。股利已經算再投入，不用另外填。月報、日報表的預估會依目前持股比例，用加權平均報酬率計算。</p>
+      <b>年報酬率</b>（選填，只有資產用得到）：用來估計股票、虛擬貨幣等未來的成長，填百分比數字（年化 5% 填 5）。股利已經算再投入，不用另外填。月報、日報表的預估會依目前持股比例，用加權平均報酬率計算。</p>
     <div class="scroll"><table>
-      <thead><tr><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>年報酬率</th><th>狀態</th><th></th></tr></thead>
+      <thead><tr><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>年報酬率（%）</th><th>狀態</th><th></th></tr></thead>
       <tbody id="tgtBody"></tbody>
     </table></div>
     <div class="bar">
@@ -209,7 +209,7 @@
     <label for="tgtKind">性質</label><select id="tgtKind"></select>
     <label for="tgtName">標的名稱</label><input id="tgtName" type="text" placeholder="例：TSLA、元大銀行、威均川玥">
     <div id="tgtUnitWrap"><label for="tgtUnit">單位</label><select id="tgtUnit"></select>
-    <label for="tgtRate">年報酬率（選填，小數，5%填0.05）</label><input id="tgtRate" type="number" step="any" placeholder="例：0.05"></div>
+    <label for="tgtRate">年報酬率（選填，百分比，年化5%填5）</label><input id="tgtRate" type="number" step="any" placeholder="例：5"></div>
     <div class="bar">
       <button class="btn" id="tgtOk" value="ok" type="submit">建立</button>
       <button class="btn ghost" value="cancel" type="submit" formnovalidate>取消</button>
@@ -902,7 +902,7 @@ $('tgtForm').addEventListener('submit', async ev => {
   if (name.includes(SEP)) return fail(`標的名稱不可包含「${SEP}」`);
   if (findTarget(cat, tkey($('tgtOwner').value, name))) return fail(`「${name}」（${$('tgtOwner').value}）已經存在，請直接從選單選取（若已停用，請到「標的」分頁改回使用中）`);
   const row = { cat, owner:$('tgtOwner').value, kind:$('tgtKind').value, name, unit: cat === '資產' ? $('tgtUnit').value : '',
-    rate: cat === '資產' && $('tgtRate').value !== '' ? Number($('tgtRate').value) : '', status:'使用中' };
+    rate: cat === '資產' && $('tgtRate').value !== '' ? Number($('tgtRate').value) / 100 : '', status:'使用中' };
   setTargets([...state.targets, row]); renderTargets();
   const d = $('dlgTarget'); if (d.close) d.close(); else d.removeAttribute('open');
   if (done) done(tkey(row.owner, name));
@@ -913,7 +913,7 @@ function addTargetRow(t = {}){
   const owner = select(OWNERS, t.owner);
   const kind = h('select'); const unit = h('select');
   const name = h('input', {type:'text', value:t.name || '', placeholder:'標的名稱'});
-  const rate = h('input', {type:'number', step:'any', value:(t.rate === null || t.rate === undefined) ? '' : t.rate, placeholder:'例：0.05'});
+  const rate = h('input', {type:'number', step:'any', value:(t.rate === null || t.rate === undefined || t.rate === '') ? '' : t.rate * 100, placeholder:'例：5'});
   const status = select(['使用中','停用'], t.status);
   const tr = h('tr', {class: 'row-f'});
   const syncKind = keep => { kind.replaceChildren(...KINDS_BY_CAT[cat.value].map(o => h('option',{value:o,text:o}))); if (keep && KINDS_BY_CAT[cat.value].includes(keep)) kind.value = keep; };
@@ -925,7 +925,7 @@ function addTargetRow(t = {}){
   tr.append(h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,rate), h('td',null,status),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => tr.remove()})));
   tr._read = () => ({ cat:cat.value, owner:owner.value, kind:kind.value, name:name.value.trim(), unit:unit.value,
-    rate: cat.value === '資產' && rate.value !== '' ? Number(rate.value) : '', status:status.value });
+    rate: cat.value === '資產' && rate.value !== '' ? Number(rate.value) / 100 : '', status:status.value });
   $('tgtBody').append(tr);
 }
 function renderTargets(){ $('tgtBody').replaceChildren(); state.targets.forEach(addTargetRow); }
