@@ -1023,7 +1023,9 @@ async function loadReport(){
   const c = cget('getReport');
   if (c) applyReport(c); else $('reportInfo').textContent = '載入中…';
   const R = await fresh('getReport');
-  if (R && JSON.stringify(R.rows) !== JSON.stringify(state.report && state.report.rows)) applyReport(R);
+  const changed = R && (JSON.stringify(R.rows) !== JSON.stringify(state.report && state.report.rows) ||
+    JSON.stringify(R.plan) !== JSON.stringify(state.report && state.report.plan));
+  if (changed) applyReport(R);
   else if (R) { state.report.generatedAt = R.generatedAt; $('reportInfo').textContent = '更新時間 ' + new Date(R.generatedAt).toLocaleString('zh-TW'); }
   else if (!c) $('reportInfo').textContent = '';
 }
