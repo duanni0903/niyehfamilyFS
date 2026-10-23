@@ -99,20 +99,34 @@
     <div id="dateWarn" class="warn" hidden>此日期已有快照，送出後會覆蓋當天整批資料。</div>
 
     <h2>現有資產</h2>
+    <div class="bar">
+      <select id="assetFilterOwner" style="width:auto"><option value="">負責人：全部</option></select>
+      <select id="assetFilterKind" style="width:auto"><option value="">性質：全部</option></select>
+      <input id="assetFilterText" type="text" placeholder="搜尋標的" style="width:auto">
+      <button class="btn ghost small" id="assetFilterClear" type="button">清除篩選</button>
+      <span class="note" id="assetFilterInfo"></span>
+    </div>
     <div class="scroll"><table class="wide">
-      <thead><tr><th>負責人</th><th>性質</th><th>標的</th><th class="num">單位數</th><th>單位</th>
+      <thead><tr><th></th><th>負責人</th><th>性質</th><th>標的</th><th class="num">單位數</th><th>單位</th>
         <th class="num">現單價</th><th class="num">成本價</th><th class="num">現匯率</th><th class="num">成本匯率</th>
         <th class="num">資產</th><th class="num">成本</th><th></th></tr></thead>
       <tbody id="assetBody"></tbody>
-      <tfoot><tr><td colspan="9" style="text-align:right"><b>合計</b></td>
+      <tfoot><tr><td colspan="10" style="text-align:right"><b>合計</b></td>
         <td class="num"><b id="totAsset">–</b></td><td class="num"><b id="totCost">–</b></td><td></td></tr></tfoot>
     </table></div>
-    <p class="note">資產＝單位數×現單價×現匯率；成本＝單位數×成本價×成本匯率；匯率空白視為 1。存款或房屋沒有股數時，單位數填 1（或坪數）、現單價填金額（或每坪價）即可。</p>
+    <p class="note">資產＝單位數×現單價×現匯率；成本＝單位數×成本價×成本匯率；匯率空白視為 1。存款或房屋沒有股數時，單位數填 1（或坪數）、現單價填金額（或每坪價）即可。<br>
+      拖曳最左邊的 ⠿ 可調整順序（額外資產會跟著主標的一起移動）；篩選只影響顯示，不影響送出的資料。</p>
     <div class="bar"><button class="btn ghost small" id="addAsset" type="button">＋ 新增資產（以下可新增）</button></div>
 
     <h2>現有負債</h2>
+    <div class="bar">
+      <select id="liabFilterOwner" style="width:auto"><option value="">負責人：全部</option></select>
+      <input id="liabFilterText" type="text" placeholder="搜尋標的" style="width:auto">
+      <button class="btn ghost small" id="liabFilterClear" type="button">清除篩選</button>
+      <span class="note" id="liabFilterInfo"></span>
+    </div>
     <div class="scroll"><table>
-      <thead><tr><th>負責人</th><th>性質</th><th>標的</th><th class="num">金額（填正數）</th><th></th></tr></thead>
+      <thead><tr><th></th><th>負責人</th><th>性質</th><th>標的</th><th class="num">金額（填正數）</th><th></th></tr></thead>
       <tbody id="liabBody"></tbody>
     </table></div>
     <div class="bar"><button class="btn ghost small" id="addLiab" type="button">＋ 新增負債（以下可新增）</button></div>
@@ -203,8 +217,16 @@
       都可以再加「<code>(起/訖)</code>」限定時間，例如 <code>每月(2026/11~2030/6)</code>、<code>每月(2026/11~)</code>、<code>每年3月(~2045/3)</code>。<br>
       金額一律填正數。
     </p>
+    <div class="bar">
+      <select id="futFilterOwner" style="width:auto"><option value="">負責人：全部</option></select>
+      <select id="futFilterType" style="width:auto"><option value="">類別：全部</option></select>
+      <select id="futFilterInto" style="width:auto"><option value="">計入至：全部</option></select>
+      <input id="futFilterText" type="text" placeholder="搜尋性質／標的備註" style="width:auto">
+      <button class="btn ghost small" id="futFilterClear" type="button">清除篩選</button>
+      <span class="note" id="futFilterInfo"></span>
+    </div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>投資標的</th><th>標的（備註）</th><th>計入至</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
+      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>投資標的</th><th>計入至</th><th>標的（備註）</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
       <tbody id="futBody"></tbody>
     </table></div>
     <div class="bar">
@@ -536,6 +558,7 @@ function targetSelect(cat, current, onPick){          // current = {owner, name}
 function addAssetRow(d = {}, parent = null){
   const tr = h('tr', {class:'row-a'});
   const unitSel = tag(h('select'), 'unit');
+  let handleTd;
   if (!parent){
     const t0 = d.name ? findTarget('資產', tkey(d.owner, d.name)) : null;
     const ownerInp = roInput('owner', d.owner || (t0 && t0.owner));
@@ -547,11 +570,22 @@ function addAssetRow(d = {}, parent = null){
       setUnitOptions(unitSel, kindInp.value, t ? t.unit : null);
       refreshExtraBtn(tr); updateAssetRow(tr);
     }), 'name');
-    tr.append(h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel));
+    const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序（額外資產會一起移動）', text:'⠿'});
+    handleTd = h('td', {class:'drag-td'}, handle);
+    tr.append(handleTd, h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel));
+    handle.addEventListener('mousedown', () => { tr.draggable = true; });
+    handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
+    tr.addEventListener('dragstart', (e) => {
+      tr.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', ''); } catch (err) {}
+    });
+    tr.addEventListener('dragend', () => { tr.draggable = false; tr.classList.remove('dragging'); });
   } else {
     tr.classList.add('row-x'); tr._parent = parent;
     setUnitOptions(unitSel, '不動產', d.unit || '個');
-    tr.append(h('td',{colspan:2,class:'note',text:'└ 額外資產（車位等）'}),
+    handleTd = h('td', {class:'drag-td'});
+    tr.append(handleTd, h('td',{colspan:2,class:'note',text:'└ 額外資產（車位等）'}),
       h('td',null,tag(h('input', {type:'text', value:d.name || '', placeholder:'項目，例：車位'}), 'name')));
   }
   tr.append(
@@ -582,7 +616,69 @@ function loadAssetRows(list){
     if (parents[pn]) addAssetRow(Object.assign({}, x, {name: sub}), parents[pn]);
     else addAssetRow(x);                               // 找不到主標的就當一般資產列
   });
+  applyAssetFilter();
 }
+(function(){
+  const body = $('assetBody');
+  function assetRowGroup(tr){
+    const group = [tr];
+    let next = tr.nextElementSibling;
+    while (next && next._parent === tr) { group.push(next); next = next.nextElementSibling; }
+    return group;
+  }
+  function parentRows(){ return [...body.querySelectorAll('tr')].filter(r => !r._parent && r.style.display !== 'none'); }
+  function getDragAfterElement(y){
+    const dragging = body.querySelector('tr.dragging');
+    const rows = parentRows().filter(r => r !== dragging);
+    return rows.reduce((closest, row) => {
+      const box = row.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset, element: row };
+      return closest;
+    }, { offset: -Infinity, element: null }).element;
+  }
+  body.addEventListener('dragover', (e) => {
+    const dragging = body.querySelector('tr.dragging');
+    if (!dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const after = getDragAfterElement(e.clientY);
+    const group = assetRowGroup(dragging);
+    if (after != null && group.includes(after)) return;
+    if (after == null) group.forEach(r => body.append(r));
+    else group.forEach(r => body.insertBefore(r, after));
+  });
+})();
+function applyAssetFilter(){
+  const owner = $('assetFilterOwner').value, kind = $('assetFilterKind').value;
+  const text = $('assetFilterText').value.trim().toLowerCase();
+  let shown = 0, total = 0;
+  const rows = [...$('assetBody').querySelectorAll('tr')];
+  let i = 0;
+  while (i < rows.length){
+    const tr = rows[i];
+    if (tr._parent) { i++; continue; }
+    total++;
+    const r = readAssetRow(tr);
+    const ok = (!owner || r.owner === owner) && (!kind || r.kind === kind) && (!text || r.name.toLowerCase().includes(text));
+    tr.style.display = ok ? '' : 'none';
+    let j = i + 1;
+    while (j < rows.length && rows[j]._parent === tr){ rows[j].style.display = ok ? '' : 'none'; j++; }
+    if (ok) shown++;
+    i = j;
+  }
+  $('assetFilterInfo').textContent = (owner || kind || text) ? `顯示 ${shown} / ${total} 組` : '';
+}
+(function(){
+  OWNERS.forEach(o => $('assetFilterOwner').append(h('option',{value:o,text:o})));
+  ASSET_KINDS.forEach(o => $('assetFilterKind').append(h('option',{value:o,text:o})));
+})();
+['assetFilterOwner','assetFilterKind'].forEach(id => $(id).onchange = applyAssetFilter);
+$('assetFilterText').oninput = applyAssetFilter;
+$('assetFilterClear').onclick = () => {
+  $('assetFilterOwner').value = ''; $('assetFilterKind').value = ''; $('assetFilterText').value = '';
+  applyAssetFilter();
+};
 function addLiabRow(d = {}){
   const tr = h('tr', {class:'row-l'});
   const t0 = d.name ? findTarget('負債', tkey(d.owner, d.name)) : null;
@@ -592,11 +688,59 @@ function addLiabRow(d = {}){
     const t = findTarget('負債', key);
     ownerInp.value = t ? t.owner : ''; kindInp.value = t ? t.kind : '';
   }), 'name');
-  tr.append(h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel),
+  const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
+  const handleTd = h('td', {class:'drag-td'}, handle);
+  tr.append(handleTd, h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel),
     h('td',null,numInput(d.amount)),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
+  handle.addEventListener('mousedown', () => { tr.draggable = true; });
+  handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
+  tr.addEventListener('dragstart', (e) => {
+    tr.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', ''); } catch (err) {}
+  });
+  tr.addEventListener('dragend', () => { tr.draggable = false; tr.classList.remove('dragging'); });
   $('liabBody').append(tr);
 }
+(function(){
+  const body = $('liabBody');
+  function getDragAfterElement(y){
+    const rows = [...body.querySelectorAll('tr')].filter(r => !r.classList.contains('dragging') && r.style.display !== 'none');
+    return rows.reduce((closest, row) => {
+      const box = row.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset, element: row };
+      return closest;
+    }, { offset: -Infinity, element: null }).element;
+  }
+  body.addEventListener('dragover', (e) => {
+    const dragging = body.querySelector('.dragging');
+    if (!dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const after = getDragAfterElement(e.clientY);
+    if (after == null) body.append(dragging);
+    else if (after !== dragging) body.insertBefore(dragging, after);
+  });
+})();
+function applyLiabFilter(){
+  const owner = $('liabFilterOwner').value;
+  const text = $('liabFilterText').value.trim().toLowerCase();
+  let shown = 0, total = 0;
+  for (const tr of $('liabBody').querySelectorAll('tr')){
+    total++;
+    const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? nameOfKey(e.value).trim() : ''; };
+    const ok = (!owner || g('owner') === owner) && (!text || g('name').toLowerCase().includes(text));
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }
+  $('liabFilterInfo').textContent = (owner || text) ? `顯示 ${shown} / ${total} 筆` : '';
+}
+(function(){ OWNERS.forEach(o => $('liabFilterOwner').append(h('option',{value:o,text:o}))); })();
+$('liabFilterOwner').onchange = applyLiabFilter;
+$('liabFilterText').oninput = applyLiabFilter;
+$('liabFilterClear').onclick = () => { $('liabFilterOwner').value = ''; $('liabFilterText').value = ''; applyLiabFilter(); };
 $('addAsset').onclick = () => addAssetRow();
 $('addLiab').onclick = () => addLiabRow();
 
@@ -613,6 +757,7 @@ function renderEntry(latest){
   state.dates = latest ? latest.dates : [];
   loadAssetRows(assets);
   liabs.forEach(l => addLiabRow(l));
+  applyLiabFilter();
   $('dateInfo').textContent = latest && latest.assetDate ? '上次填報：' + latest.assetDate : '尚無歷史快照';
   checkDate();
 }
@@ -718,7 +863,7 @@ function addFutRow(d = {}){
   const tr = h('tr', {class:'row-f'});
   const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
   const handleTd = h('td', {class:'drag-td'}, handle);
-  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,name), h('td',null,into), h('td',null,period), h('td',null,amount),
+  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,into), h('td',null,name), h('td',null,period), h('td',null,amount),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>{ if (confirm(`確定要刪除這一列嗎？${name.value.trim() ? '（' + name.value.trim() + '）' : ''}`)) tr.remove(); }})));
   handle.addEventListener('mousedown', () => { tr.draggable = true; });
   handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
@@ -755,13 +900,38 @@ function addFutRow(d = {}){
 (function(){ const dl = h('datalist',{id:'periods'});
   ['每月','每年3月','每年3,9月','每隔2月','單次2027/9','每月(2026/11~2030/6)'].forEach(v => dl.append(h('option',{value:v})));
   document.body.append(dl); })();
+(function(){
+  FUT_OWNERS.forEach(o => $('futFilterOwner').append(h('option',{value:o,text:o})));
+  FUT_TYPES.forEach(o => $('futFilterType').append(h('option',{value:o,text:o})));
+  FLOW_KINDS.forEach(o => $('futFilterInto').append(h('option',{value:o,text:o})));
+})();
+function applyFutFilter(){
+  const owner = $('futFilterOwner').value, type = $('futFilterType').value, into = $('futFilterInto').value;
+  const text = $('futFilterText').value.trim().toLowerCase();
+  let shown = 0, total = 0;
+  for (const tr of $('futBody').querySelectorAll('tr')){
+    total++;
+    const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? e.value : ''; };
+    const ok = (!owner || g('owner') === owner) && (!type || g('type') === type) && (!into || g('into') === into) &&
+      (!text || g('kind').toLowerCase().includes(text) || g('name').toLowerCase().includes(text));
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }
+  $('futFilterInfo').textContent = (owner || type || into || text) ? `顯示 ${shown} / ${total} 筆` : '';
+}
+['futFilterOwner','futFilterType','futFilterInto'].forEach(id => $(id).onchange = applyFutFilter);
+$('futFilterText').oninput = applyFutFilter;
+$('futFilterClear').onclick = () => {
+  $('futFilterOwner').value = ''; $('futFilterType').value = ''; $('futFilterInto').value = ''; $('futFilterText').value = '';
+  applyFutFilter();
+};
 $('addFut').onclick = () => addFutRow();
 async function loadFuture(){
   const c = cget('getFuture');
-  if (c){ $('futBody').replaceChildren(); c.forEach(addFutRow); state.futureLoaded = true; }
+  if (c){ $('futBody').replaceChildren(); c.forEach(addFutRow); state.futureLoaded = true; applyFutFilter(); }
   const rows = await fresh('getFuture');
   if (!rows || outbox.some(o => o.action === 'saveFuture')) return;
-  if (JSON.stringify(rows) !== JSON.stringify(c)){ $('futBody').replaceChildren(); rows.forEach(addFutRow); }
+  if (JSON.stringify(rows) !== JSON.stringify(c)){ $('futBody').replaceChildren(); rows.forEach(addFutRow); applyFutFilter(); }
   state.futureLoaded = true;
 }
 $('saveFut').onclick = async () => {
