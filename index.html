@@ -172,7 +172,9 @@
     <span class="note" id="reportInfo"></span>
   </div>
   <div class="tiles" id="tiles"></div>
-  <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas></div>
+  <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas>
+    <div class="bar" style="margin-top:8px"><label class="note"><input type="checkbox" id="chartShowPlan"> 顯示 PLAN 值對比</label></div>
+  </div>
   <div class="card"><h2>月報表</h2><div class="scroll"><table id="monthTable"></table></div>
     <p class="note">收入與支出，歷史取自原表實績，之後依「計算未來」展開。預估月份的資產與負債為空白。</p></div>
 </section>
@@ -1024,6 +1026,7 @@ async function loadReport(){
 }
 $('btnReload').onclick = loadReport;
 $('fromYear').onchange = () => state.report && renderReport();
+$('chartShowPlan').onchange = () => state.report && renderReport();
 
 function renderReport(){
   const R = state.report, rows = R.rows, n = R.months.length;
@@ -1054,11 +1057,16 @@ function renderReport(){
     const netData = rawNet.map((v,k) => statuses[k] === '預估' ? null : v);
     const projData = rawProj.map((v,k) => statuses[k] === '預估' ? v : null);
     if (firstEstPos > 0) projData[firstEstPos - 1] = rawNet[firstEstPos - 1]; // 銜接點：讓兩條線在預估開始前一個月接起來，不留空隙
+    const datasets = [
+      {label:'淨值（實際）', data:netData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', pointRadius:2, tension:.2, spanGaps:false},
+      {label:'預估淨值', data:projData, borderColor:'#c58b00', backgroundColor:'#c58b00', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:false} ];
+    if ($('chartShowPlan').checked && R.plan) {
+      const planData = idx.map(i => { const v = R.plan[R.months[i]]; return typeof v === 'number' ? v : null; });
+      datasets.push({label:'PLAN值', data:planData, borderColor:'#2e8b57', backgroundColor:'#2e8b57', borderDash:[2,3], pointRadius:0, tension:.2, spanGaps:false});
+    }
     if (state.chart) state.chart.destroy();
     state.chart = new Chart($('chart'), { type:'line',
-      data:{ labels: idx.map(i => R.months[i]), datasets:[
-        {label:'淨值（實際）', data:netData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', pointRadius:2, tension:.2, spanGaps:false},
-        {label:'預估淨值', data:projData, borderColor:'#c58b00', backgroundColor:'#c58b00', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:false} ]},
+      data:{ labels: idx.map(i => R.months[i]), datasets },
       options:{ responsive:true, maintainAspectRatio:true, interaction:{mode:'index', intersect:false},
         scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
         plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
