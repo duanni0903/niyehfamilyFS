@@ -48,6 +48,11 @@
   .btn.small{padding:4px 10px;font-size:13px}
   .btn:disabled{opacity:.5;cursor:wait}
   .x{background:none;border:0;color:var(--neg);cursor:pointer;font-size:18px;line-height:1}
+  .drag-td{width:1.6em;text-align:center;padding:0 4px!important}
+  .drag-handle{cursor:grab;color:var(--muted,#888);font-size:16px;user-select:none;touch-action:none;display:inline-block;padding:4px}
+  tr.dragging{opacity:.4}
+  tr.drag-over-top td{box-shadow:inset 0 2px 0 0 var(--brand,#2563eb)}
+  tr.drag-over-bottom td{box-shadow:inset 0 -2px 0 0 var(--brand,#2563eb)}
   .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
   .note{color:var(--muted);font-size:13px}
   .warn{background:var(--warn);border-radius:6px;padding:6px 10px;margin:8px 0;font-size:14px}
@@ -190,7 +195,7 @@
       金額一律填正數。
     </p>
     <div class="scroll"><table>
-      <thead><tr><th>負責人</th><th>類別</th><th>性質</th><th>投資標的</th><th>標的（備註）</th><th>計入至</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
+      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>投資標的</th><th>標的（備註）</th><th>計入至</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
       <tbody id="futBody"></tbody>
     </table></div>
     <div class="bar">
@@ -702,11 +707,42 @@ function addFutRow(d = {}){
   kind.onchange = syncInv;
   into.onchange = syncInv;
   const tr = h('tr', {class:'row-f'});
-  tr.append(h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,name), h('td',null,into), h('td',null,period), h('td',null,amount),
-    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
+  const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
+  const handleTd = h('td', {class:'drag-td'}, handle);
+  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,name), h('td',null,into), h('td',null,period), h('td',null,amount),
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>{ if (confirm(`確定要刪除這一列嗎？${name.value.trim() ? '（' + name.value.trim() + '）' : ''}`)) tr.remove(); }})));
+  handle.addEventListener('mousedown', () => { tr.draggable = true; });
+  handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
+  tr.addEventListener('dragstart', (e) => {
+    tr.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', ''); } catch (err) {}
+  });
+  tr.addEventListener('dragend', () => { tr.draggable = false; tr.classList.remove('dragging'); });
   syncInv();
   $('futBody').append(tr);
 }
+(function(){
+  const body = $('futBody');
+  function getDragAfterElement(y){
+    const rows = [...body.querySelectorAll('tr:not(.dragging)')];
+    return rows.reduce((closest, row) => {
+      const box = row.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset, element: row };
+      return closest;
+    }, { offset: -Infinity, element: null }).element;
+  }
+  body.addEventListener('dragover', (e) => {
+    const dragging = body.querySelector('.dragging');
+    if (!dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const after = getDragAfterElement(e.clientY);
+    if (after == null) body.append(dragging);
+    else if (after !== dragging) body.insertBefore(dragging, after);
+  });
+})();
 (function(){ const dl = h('datalist',{id:'periods'});
   ['每月','每年3月','每年3,9月','每隔2月','單次2027/9','每月(2026/11~2030/6)'].forEach(v => dl.append(h('option',{value:v})));
   document.body.append(dl); })();
@@ -929,7 +965,7 @@ function addTargetRow(t = {}){
   cat.onchange = () => { syncKind(null); syncUnit(null); if (cat.value !== '資產') rate.value = ''; };
   kind.onchange = () => { const list = UNITS[kind.value] || ['單位']; syncUnit(list.includes(unit.value) ? unit.value : null); };
   tr.append(h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,rate), h('td',null,status),
-    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => tr.remove()})));
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => { if (confirm(`確定要刪除標的「${name.value.trim() || '（未命名）'}」嗎？按「儲存」後會整份覆蓋試算表「標的」分頁，刪除後要救回來比較麻煩，建議先確認沒有用到這個標的再刪。`)) tr.remove(); }})));
   tr._read = () => ({ cat:cat.value, owner:owner.value, kind:kind.value, name:name.value.trim(), unit:unit.value,
     rate: cat.value === '資產' && rate.value !== '' ? Number(rate.value) / 100 : '', status:status.value });
   $('tgtBody').append(tr);
