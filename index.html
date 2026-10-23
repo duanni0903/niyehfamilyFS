@@ -226,7 +226,7 @@
       <span class="note" id="futFilterInfo"></span>
     </div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>投資標的</th><th>計入至</th><th>標的（備註）</th><th>週期</th><th class="num">金額</th><th></th></tr></thead>
+      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>備註</th><th>週期</th><th class="num">金額</th><th>計入至</th><th>投資標的</th><th></th></tr></thead>
       <tbody id="futBody"></tbody>
     </table></div>
     <div class="bar">
@@ -863,7 +863,7 @@ function addFutRow(d = {}){
   const tr = h('tr', {class:'row-f'});
   const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
   const handleTd = h('td', {class:'drag-td'}, handle);
-  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), invTd, h('td',null,into), h('td',null,name), h('td',null,period), h('td',null,amount),
+  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), h('td',null,name), h('td',null,period), h('td',null,amount), h('td',null,into), invTd,
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>{ if (confirm(`確定要刪除這一列嗎？${name.value.trim() ? '（' + name.value.trim() + '）' : ''}`)) tr.remove(); }})));
   handle.addEventListener('mousedown', () => { tr.draggable = true; });
   handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
