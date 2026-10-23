@@ -1063,11 +1063,11 @@ function renderReport(){
     const projData = rawProj.map((v,k) => statuses[k] === '預估' ? v : null);
     if (firstEstPos > 0) projData[firstEstPos - 1] = rawNet[firstEstPos - 1]; // 銜接點：讓兩條線在預估開始前一個月接起來，不留空隙
     const datasets = [
-      {label:'實際發生', data:netData, borderColor:'#c0392b', backgroundColor:'#c0392b', pointRadius:2, tension:.2, spanGaps:false},
-      {label:'預估淨值', data:projData, borderColor:'#d4a017', backgroundColor:'#d4a017', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:false} ];
+      {label:'實際發生', data:netData, borderColor:'#c0392b', backgroundColor:'#c0392b', pointRadius:2, tension:.2, spanGaps:true},
+      {label:'預估淨值', data:projData, borderColor:'#d4a017', backgroundColor:'#d4a017', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:true} ];
     if (R.plan) {
       const planData = idx.map(i => { const v = R.plan[R.months[i]]; return typeof v === 'number' ? v : null; });
-      datasets.push({label:'PLAN值', data:planData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', borderDash:[2,3], pointRadius:0, tension:.2, spanGaps:false});
+      datasets.push({label:'PLAN值', data:planData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', borderDash:[2,3], pointRadius:0, tension:.2, spanGaps:true});
     }
     if (state.chart) state.chart.destroy();
     state.chart = new Chart($('chart'), { type:'line',
