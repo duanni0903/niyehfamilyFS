@@ -129,9 +129,18 @@
     <h2>標的管理</h2>
     <p class="note">先在這裡建立標的，填報時只要從下拉選單選標的，負責人、性質、單位會自動帶入。<br>
       改名只影響之後的填報、舊資料維持原名；要改名請新增新標的，並把舊的設為「停用」。停用的標的不會出現在選單，歷史資料保留。<br>
-      <b>年報酬率</b>（選填，只有資產用得到）：用來估計股票、虛擬貨幣等未來的成長，填百分比數字（年化 5% 填 5）。股利已經算再投入，不用另外填。月報、日報表的預估會依目前持股比例，用加權平均報酬率計算。</p>
+      <b>年報酬率</b>（選填，只有資產用得到）：用來估計股票、虛擬貨幣等未來的成長，填百分比數字（年化 5% 填 5）。股利已經算再投入，不用另外填。月報、日報表的預估會依目前持股比例，用加權平均報酬率計算。<br>
+      拖曳每列最左邊的 ⠿ 可以調整順序；下面可以篩選列表（篩選只影響顯示，不影響儲存的資料）。</p>
+    <div class="bar">
+      <select id="tgtFilterCat" style="width:auto"><option value="">類別：全部</option><option value="資產">資產</option><option value="負債">負債</option></select>
+      <select id="tgtFilterOwner" style="width:auto"><option value="">負責人：全部</option></select>
+      <select id="tgtFilterStatus" style="width:auto"><option value="">狀態：全部</option><option value="使用中">使用中</option><option value="停用">停用</option></select>
+      <input id="tgtFilterText" type="text" placeholder="搜尋性質／標的名稱" style="width:auto">
+      <button class="btn ghost small" id="tgtFilterClear" type="button">清除篩選</button>
+      <span class="note" id="tgtFilterInfo"></span>
+    </div>
     <div class="scroll"><table>
-      <thead><tr><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>年報酬率（%）</th><th>狀態</th><th></th></tr></thead>
+      <thead><tr><th></th><th>類別</th><th>負責人</th><th>性質</th><th>標的名稱</th><th>單位（資產）</th><th>年報酬率（%）</th><th>狀態</th><th></th></tr></thead>
       <tbody id="tgtBody"></tbody>
     </table></div>
     <div class="bar">
@@ -964,13 +973,69 @@ function addTargetRow(t = {}){
   syncKind(t.kind); syncUnit(t.unit);
   cat.onchange = () => { syncKind(null); syncUnit(null); if (cat.value !== '資產') rate.value = ''; };
   kind.onchange = () => { const list = UNITS[kind.value] || ['單位']; syncUnit(list.includes(unit.value) ? unit.value : null); };
-  tr.append(h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,rate), h('td',null,status),
+  const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
+  const handleTd = h('td', {class:'drag-td'}, handle);
+  tr.append(handleTd, h('td',null,cat), h('td',null,owner), h('td',null,kind), h('td',null,name), h('td',null,unit), h('td',null,rate), h('td',null,status),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:() => { if (confirm(`確定要刪除標的「${name.value.trim() || '（未命名）'}」嗎？按「儲存」後會整份覆蓋試算表「標的」分頁，刪除後要救回來比較麻煩，建議先確認沒有用到這個標的再刪。`)) tr.remove(); }})));
+  handle.addEventListener('mousedown', () => { tr.draggable = true; });
+  handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
+  tr.addEventListener('dragstart', (e) => {
+    tr.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', ''); } catch (err) {}
+  });
+  tr.addEventListener('dragend', () => { tr.draggable = false; tr.classList.remove('dragging'); });
   tr._read = () => ({ cat:cat.value, owner:owner.value, kind:kind.value, name:name.value.trim(), unit:unit.value,
     rate: cat.value === '資產' && rate.value !== '' ? Number(rate.value) / 100 : '', status:status.value });
   $('tgtBody').append(tr);
 }
-function renderTargets(){ $('tgtBody').replaceChildren(); state.targets.forEach(addTargetRow); }
+(function(){
+  const body = $('tgtBody');
+  function visibleRows(){ return [...body.querySelectorAll('tr')].filter(r => r.style.display !== 'none'); }
+  function getDragAfterElement(y){
+    const rows = visibleRows().filter(r => !r.classList.contains('dragging'));
+    return rows.reduce((closest, row) => {
+      const box = row.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) return { offset, element: row };
+      return closest;
+    }, { offset: -Infinity, element: null }).element;
+  }
+  body.addEventListener('dragover', (e) => {
+    const dragging = body.querySelector('.dragging');
+    if (!dragging) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const after = getDragAfterElement(e.clientY);
+    if (after == null) body.append(dragging);
+    else if (after !== dragging) body.insertBefore(dragging, after);
+  });
+})();
+function applyTgtFilter(){
+  const cat = $('tgtFilterCat').value, owner = $('tgtFilterOwner').value, status = $('tgtFilterStatus').value;
+  const text = $('tgtFilterText').value.trim().toLowerCase();
+  let shown = 0, total = 0;
+  for (const tr of $('tgtBody').querySelectorAll('tr')){
+    total++;
+    const r = tr._read();
+    const ok = (!cat || r.cat === cat) && (!owner || r.owner === owner) && (!status || r.status === status) &&
+      (!text || r.name.toLowerCase().includes(text) || r.kind.toLowerCase().includes(text));
+    tr.style.display = ok ? '' : 'none';
+    if (ok) shown++;
+  }
+  $('tgtFilterInfo').textContent = (cat || owner || status || text) ? `顯示 ${shown} / ${total} 筆` : '';
+}
+(function(){
+  const sel = $('tgtFilterOwner');
+  OWNERS.forEach(o => sel.append(h('option',{value:o,text:o})));
+})();
+['tgtFilterCat','tgtFilterOwner','tgtFilterStatus'].forEach(id => $(id).onchange = applyTgtFilter);
+$('tgtFilterText').oninput = applyTgtFilter;
+$('tgtFilterClear').onclick = () => {
+  $('tgtFilterCat').value = ''; $('tgtFilterOwner').value = ''; $('tgtFilterStatus').value = ''; $('tgtFilterText').value = '';
+  applyTgtFilter();
+};
+function renderTargets(){ $('tgtBody').replaceChildren(); state.targets.forEach(addTargetRow); applyTgtFilter(); }
 async function loadTargetsTab(){
   const c = cget('getTargets');
   if (c){ state.targets = c.targets; state.targetsLoaded = true; renderTargets(); }
