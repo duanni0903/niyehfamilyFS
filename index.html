@@ -1045,14 +1045,20 @@ function renderReport(){
     const cm = get(L.cash, last); tile('現金可支應月數', typeof cm === 'number' ? cm.toFixed(1) + ' 個月' : '–');
   } else tiles.append(h('div',{class:'note',text:'尚無實績資料。'}));
 
-  // 圖
+  // 圖：實際（藍色實線）跟預估（橘色虛線）分成兩條不同顏色的線，在今天這個月接起來，不會整條都長一樣的顏色
   if (window.Chart){
     const data = key => idx.map(i => { const v = get(key, i); return typeof v === 'number' ? v : null; });
+    const statuses = idx.map(i => get(L.status, i));
+    const rawNet = data(L.net), rawProj = data(L.proj);
+    const firstEstPos = statuses.findIndex(s => s === '預估');
+    const netData = rawNet.map((v,k) => statuses[k] === '預估' ? null : v);
+    const projData = rawProj.map((v,k) => statuses[k] === '預估' ? v : null);
+    if (firstEstPos > 0) projData[firstEstPos - 1] = rawNet[firstEstPos - 1]; // 銜接點：讓兩條線在預估開始前一個月接起來，不留空隙
     if (state.chart) state.chart.destroy();
     state.chart = new Chart($('chart'), { type:'line',
       data:{ labels: idx.map(i => R.months[i]), datasets:[
-        {label:'淨值', data:data(L.net), borderColor:'#1f4e78', backgroundColor:'#1f4e78', pointRadius:2, tension:.2, spanGaps:false},
-        {label:'預估淨值', data:data(L.proj), borderColor:'#c58b00', backgroundColor:'#c58b00', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:false} ]},
+        {label:'淨值（實際）', data:netData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', pointRadius:2, tension:.2, spanGaps:false},
+        {label:'預估淨值', data:projData, borderColor:'#c58b00', backgroundColor:'#c58b00', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:false} ]},
       options:{ responsive:true, maintainAspectRatio:true, interaction:{mode:'index', intersect:false},
         scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
         plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
