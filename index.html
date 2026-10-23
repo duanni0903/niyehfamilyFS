@@ -957,13 +957,28 @@ async function loadCutoff(){
   const s = await fresh('getSettings');
   if (s) applyCutoffSetting(s);
 }
-$('saveCutoff').onclick = () => {
+$('saveCutoff').onclick = async () => {
   if (!$('cutoffDate').value) return toast('請先選擇日期', true);
   const display = $('cutoffDate').value.replaceAll('-', '/');
-  cset('getSettings', Object.assign({}, cget('getSettings'), {'預估截止日': display}));
-  enqueue('saveSettings', {label:'預估截止日', value:$('cutoffDate').value, isDate:true}, 'saveSettings');
-  $('cutoffInfo').textContent = `預估只算到 ${display}，之後不再產生預估資料（背景上傳中，立即生效）`;
-  toast('已儲存，背景上傳中');
+  const btn = $('saveCutoff'); btn.disabled = true;
+  $('cutoffInfo').textContent = '儲存中…';
+  try {
+    const res = await api('saveSettings', {label:'預估截止日', value:$('cutoffDate').value, isDate:true});
+    cset('getSettings', Object.assign({}, cget('getSettings'), {'預估截止日': display}));
+    const ex = res && res.extend;
+    let extendMsg = '';
+    if (ex && ex.error) extendMsg = `（自動延伸欄位失敗：${ex.error}，請確認 Code.gs 是否已部署新版本）`;
+    else if (ex && (ex.dailyColsAdded || ex.monthlyColsAdded)) extendMsg = `（已自動延伸：日報表 +${ex.dailyColsAdded} 欄、月報表 +${ex.monthlyColsAdded} 欄）`;
+    else if (ex) extendMsg = '（欄位範圍已經足夠，沒有延伸）';
+    else extendMsg = '（後端沒有回傳延伸結果，可能還在跑舊版 Code.gs，請確認已重新部署）';
+    $('cutoffInfo').textContent = `預估只算到 ${display}，之後不再產生預估資料 ${extendMsg}`;
+    toast('已儲存' + (ex && !ex.error ? '，欄位已自動確認/延伸' : ''));
+  } catch (e) {
+    $('cutoffInfo').textContent = '儲存失敗：' + e.message;
+    toast('儲存失敗：' + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
 };
 $('saveFut').onclick = async () => {
   const rows = [];
