@@ -218,6 +218,12 @@
       金額一律填正數。
     </p>
     <div class="bar">
+      <label for="cutoffDate"><b>預估只算到</b></label>
+      <input id="cutoffDate" type="date" style="width:auto">
+      <button class="btn small" id="saveCutoff" type="button">儲存</button>
+      <span class="note" id="cutoffInfo"></span>
+    </div>
+    <div class="bar">
       <select id="futFilterOwner" style="width:auto"><option value="">負責人：全部</option></select>
       <select id="futFilterType" style="width:auto"><option value="">類別：全部</option></select>
       <select id="futFilterInto" style="width:auto"><option value="">計入至：全部</option></select>
@@ -443,6 +449,7 @@ function showTab(name){
   if (name === 'statements') loadStatements();
   if (name === 'targets' && !$('tgtBody').children.length) loadTargetsTab();
   if (name === 'future' && !state.futureLoaded) loadFuture();
+  if (name === 'future') loadCutoff();
 }
 
 const state = { targets: [], targetsLoaded: false, dates: [], report: null, stmts: null, futureLoaded: false, names: new Set(), chart: null };
@@ -934,6 +941,30 @@ async function loadFuture(){
   if (JSON.stringify(rows) !== JSON.stringify(c)){ $('futBody').replaceChildren(); rows.forEach(addFutRow); applyFutFilter(); }
   state.futureLoaded = true;
 }
+function applyCutoffSetting(s){
+  const v = s && s['預估截止日'];
+  if (v){
+    $('cutoffDate').value = String(v).replaceAll('/', '-');
+    $('cutoffInfo').textContent = `預估只算到 ${v}，之後不再產生預估資料`;
+  } else {
+    $('cutoffInfo').textContent = '尚未設定截止日（請先在 Apps Script 執行一次 setForecastCutoff 腳本）';
+  }
+}
+async function loadCutoff(){
+  const c = cget('getSettings');
+  if (c) applyCutoffSetting(c);
+  if (outbox.some(o => o.action === 'saveSettings')) return;   // 本機還有未上傳的設定，以本機為準
+  const s = await fresh('getSettings');
+  if (s) applyCutoffSetting(s);
+}
+$('saveCutoff').onclick = () => {
+  if (!$('cutoffDate').value) return toast('請先選擇日期', true);
+  const display = $('cutoffDate').value.replaceAll('-', '/');
+  cset('getSettings', Object.assign({}, cget('getSettings'), {'預估截止日': display}));
+  enqueue('saveSettings', {label:'預估截止日', value:$('cutoffDate').value, isDate:true}, 'saveSettings');
+  $('cutoffInfo').textContent = `預估只算到 ${display}，之後不再產生預估資料（背景上傳中，立即生效）`;
+  toast('已儲存，背景上傳中');
+};
 $('saveFut').onclick = async () => {
   const rows = [];
   for (const tr of $('futBody').querySelectorAll('tr')){
