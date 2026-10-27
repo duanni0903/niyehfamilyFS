@@ -177,6 +177,8 @@
     <div class="bar"><h2 style="margin:0">月報表</h2>
       <button class="btn small" id="tblModeActual" type="button">實際/預估</button>
       <button class="btn small" id="tblModePlan" type="button">PLAN值</button>
+      <button class="btn small" id="tblModeTargets" type="button">各標的</button>
+      <select id="tgtDetailKind" style="width:auto;min-width:0" hidden><option value="股票">股票</option><option value="虛擬貨幣">虛擬貨幣</option></select>
     </div>
     <div class="scroll"><table id="monthTable"></table></div>
     <p class="note" id="monthTableNote">收入與支出，歷史取自原表實績，之後依「計算未來」展開。預估月份的資產與負債為空白。</p></div>
@@ -1024,7 +1026,8 @@ async function loadReport(){
   if (c) applyReport(c); else $('reportInfo').textContent = '載入中…';
   const R = await fresh('getReport');
   const changed = R && (JSON.stringify(R.rows) !== JSON.stringify(state.report && state.report.rows) ||
-    JSON.stringify(R.plan) !== JSON.stringify(state.report && state.report.plan));
+    JSON.stringify(R.plan) !== JSON.stringify(state.report && state.report.plan) ||
+    JSON.stringify(R.targetDetail) !== JSON.stringify(state.report && state.report.targetDetail));
   if (changed) applyReport(R);
   else if (R) { state.report.generatedAt = R.generatedAt; $('reportInfo').textContent = '更新時間 ' + new Date(R.generatedAt).toLocaleString('zh-TW'); }
   else if (!c) $('reportInfo').textContent = '';
@@ -1034,6 +1037,8 @@ $('fromYear').onchange = () => state.report && renderReport();
 state.reportTableMode = 'actual';
 $('tblModeActual').onclick = () => { state.reportTableMode = 'actual'; state.report && renderReport(); };
 $('tblModePlan').onclick = () => { state.reportTableMode = 'plan'; state.report && renderReport(); };
+$('tblModeTargets').onclick = () => { state.reportTableMode = 'targets'; state.report && renderReport(); };
+$('tgtDetailKind').onchange = () => state.report && renderReport();
 
 function renderReport(){
   const R = state.report, rows = R.rows, n = R.months.length;
@@ -1080,9 +1085,56 @@ function renderReport(){
   }
 
   // 表：依 state.reportTableMode 切換「實際/預估」或「PLAN值」兩種表格
-  $('tblModeActual').classList.toggle('ghost', state.reportTableMode === 'plan');
-  $('tblModePlan').classList.toggle('ghost', state.reportTableMode !== 'plan');
+  const mode = state.reportTableMode || 'actual';
+  $('tblModeActual').classList.toggle('ghost', mode !== 'actual');
+  $('tblModePlan').classList.toggle('ghost', mode !== 'plan');
+  $('tblModeTargets').classList.toggle('ghost', mode !== 'targets');
+  $('tgtDetailKind').hidden = mode !== 'targets';
   const t = $('monthTable'); t.replaceChildren();
+
+  if (mode === 'targets') {
+    const TD = R.targetDetail;
+    if (!TD || TD.error || !TD.kinds) {
+      $('monthTableNote').textContent = TD && TD.error ? '各標的計算失敗：' + TD.error : '後端還沒有回傳各標的資料，請確認 Code.gs 已重新部署。';
+      return;
+    }
+    const kind = $('tgtDetailKind').value || '股票';
+    const K = TD.kinds[kind] || {targets:[], bucket:{used:false, values:[]}};
+    const ownerOrder = {'雙方':0, '倪端':1, '葉芳瑜':2};
+    const tcols = K.targets.slice().sort((a,b) => (ownerOrder[a.owner] ?? 9) - (ownerOrder[b.owner] ?? 9) || a.name.localeCompare(b.name));
+    const showBucket = K.bucket && K.bucket.used;
+    const kindTotal = R.rows[kind];
+    const rowsIdx = idx.filter(i => tcols.some(c => typeof c.values[i] === 'number'));
+    const pctTxt = r => typeof r === 'number' ? (r * 100).toFixed(1) + '%' : '0%';
+    t.append(h('thead', null, h('tr', null,
+      h('th', {text:'月份'}), h('th', {text:'狀態'}),
+      ...tcols.map(c => h('th', {class:'num', title: c.inList ? '' : '這個標的不在「標的」清單裡，報酬率當 0%'},
+        c.name + (c.inList ? '' : ' ⚠'), h('br'), h('span', {class:'note', text: c.owner + '・' + pctTxt(c.rate)}))),
+      showBucket ? h('th', {class:'num'}, '(未指定標的)', h('br'), h('span', {class:'note', text:'加權 ' + pctTxt(K.bucket.rate)})) : null,
+      h('th', {class:'num', text:'各標的合計'}), h('th', {class:'num', text:'月報表'}), h('th', {class:'num', text:'差異'}))));
+    const tb = h('tbody');
+    rowsIdx.forEach(i => {
+      const st = get(L.status, i);
+      const vals = tcols.map(c => c.values[i]);
+      const b = showBucket ? K.bucket.values[i] : null;
+      const sum = vals.reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0) + (typeof b === 'number' ? b : 0);
+      const mon = kindTotal ? kindTotal[i] : null;
+      const diff = typeof mon === 'number' ? sum - mon : null;
+      const warn = typeof diff === 'number' && Math.abs(diff) > Math.max(1000, Math.abs(mon) * 0.005);
+      tb.append(h('tr', null,
+        h('td', {text:R.months[i]}),
+        h('td', null, h('span', {class:'badge' + (st === '預估' ? ' est' : ''), text: st || '–'})),
+        ...vals.map(v => h('td', {class:'num' + (typeof v === 'number' && v < 0 ? ' neg' : ''), text: money(v)})),
+        showBucket ? h('td', {class:'num' + (typeof b === 'number' && b < 0 ? ' neg' : ''), text: money(b)}) : null,
+        h('td', {class:'num', text: money(sum)}),
+        h('td', {class:'num', text: money(mon)}),
+        h('td', {class:'num' + (warn ? ' neg' : ''), text: diff === null ? '–' : money(diff)})));
+    });
+    t.append(tb);
+    $('monthTableNote').textContent = `最新快照 ${TD.latestSnap}；實際＝當月最近一次快照的金額，預估＝每檔用自己的年報酬率每日複利，每月 ${TD.trigDay} 號加上「計算未來」裡指定到這個標的的投入。` +
+      '「月報表」是用加權平均報酬率套在整體，所以跟各標的合計會有小差距、且隨時間慢慢變大；差異欄變紅（超過 0.5%）代表要檢查，通常是投入沒指定標的或名稱打錯。⚠＝不在「標的」清單裡、報酬率當 0%。';
+    return;
+  }
 
   if (state.reportTableMode === 'plan') {
     $('monthTableNote').textContent = R.plan ? 'PLAN值取自「PLAN月報表」的存錢計畫（總累積＋中鼎股票累積＋股息累積）；差額＝實際/預估－PLAN。' : '試算表沒有「PLAN月報表」分頁，或抓不到資料。';
