@@ -172,7 +172,9 @@
     <span class="note" id="reportInfo"></span>
   </div>
   <div class="tiles" id="tiles"></div>
-  <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas></div>
+  <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas>
+    <div class="bar" style="margin-top:8px"><label class="note"><input type="checkbox" id="chartShowPlan" checked> 顯示 PLAN 值</label></div>
+  </div>
   <div class="card">
     <div class="bar"><h2 style="margin:0">月報表</h2>
       <button class="btn small" id="tblModeActual" type="button">實際/預估</button>
@@ -1035,6 +1037,11 @@ async function loadReport(){
 $('btnReload').onclick = loadReport;
 $('fromYear').onchange = () => state.report && renderReport();
 state.reportTableMode = 'actual';
+try { if (localStorage.getItem('chartShowPlan') === '0') $('chartShowPlan').checked = false; } catch (e) {}
+$('chartShowPlan').onchange = () => {
+  try { localStorage.setItem('chartShowPlan', $('chartShowPlan').checked ? '1' : '0'); } catch (e) {}
+  state.report && renderReport();
+};
 $('tblModeActual').onclick = () => { state.reportTableMode = 'actual'; state.report && renderReport(); };
 $('tblModePlan').onclick = () => { state.reportTableMode = 'plan'; state.report && renderReport(); };
 $('tblModeTargets').onclick = () => { state.reportTableMode = 'targets'; state.report && renderReport(); };
@@ -1072,7 +1079,7 @@ function renderReport(){
     const datasets = [
       {label:'實際發生', data:netData, borderColor:'#c0392b', backgroundColor:'#c0392b', pointRadius:2, tension:.2, spanGaps:true},
       {label:'預估淨值', data:projData, borderColor:'#d4a017', backgroundColor:'#d4a017', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:true} ];
-    if (R.plan) {
+    if (R.plan && $('chartShowPlan').checked) {
       const planData = idx.map(i => { const v = R.plan[R.months[i]]; return typeof v === 'number' ? v : null; });
       datasets.push({label:'PLAN值', data:planData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', borderDash:[2,3], pointRadius:0, tension:.2, spanGaps:true});
     }
