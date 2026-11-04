@@ -68,19 +68,22 @@
   .tfilter>summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:13px;background:var(--card);color:var(--ink)}
   .tfilter>summary::-webkit-details-marker{display:none}
   .tfilter>summary::after{content:' ▾';color:var(--muted)}
-  .tfilter .panel{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:260px;max-height:60vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;box-shadow:0 4px 16px rgba(0,0,0,.15)}
+  .tfilter .panel{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:max-content;min-width:200px;max-width:min(340px, calc(100vw - 32px));max-height:60vh;overflow-x:hidden;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;box-shadow:0 4px 16px rgba(0,0,0,.15)}
   .tfilter .acts{display:flex;gap:6px;margin-bottom:4px}
   .tfilter .grp{font-weight:700;margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
-  .tfilter label{display:block;font-size:13px;padding:3px 0;cursor:pointer;white-space:nowrap}
-  .tfilter label .note{margin-left:4px}
+  .tfilter label{display:flex;align-items:center;font-size:13px;padding:3px 0;cursor:pointer;white-space:nowrap}
+  .tfilter label .note{margin-left:6px}
+  .tfilter input[type=checkbox]{width:auto;min-width:0;margin:0 6px 0 0;padding:0;flex:none}
+  .tfilter .acts .btn{width:auto}
   .pfilter>summary{white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
   .pfilter>summary.neg{color:var(--neg);border-color:var(--neg)}
   .pfilter .panel{min-width:280px;max-width:calc(100vw - 32px)}
   .pfilter .prow{margin:6px 0;font-size:13px}
   .pfilter .prow[hidden]{display:none}
   .pfilter .pyear{display:grid;grid-template-columns:repeat(4,auto);gap:2px 12px;justify-content:start}
-  .pfilter .pyear label{display:inline;padding:0}
+  .pfilter .pyear label{display:flex;padding:0}
   .pfilter input[type=month]{width:auto}
+  .pfilter .prow select{width:auto}
   #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 16px;border-radius:8px;display:none;max-width:90vw;z-index:20}
   #toast.err{background:#b42318}
   .hdr-r{display:flex;gap:8px;align-items:center}
