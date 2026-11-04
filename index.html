@@ -62,6 +62,7 @@
   .neg{color:var(--neg)} .pos{color:var(--ok)}
   .badge{font-size:12px;border-radius:10px;padding:1px 8px;background:var(--green)}
   .badge.est{background:var(--warn)}
+  .money-in{text-align:right}
   .tfilter{position:relative;display:inline-block}
   .tfilter[hidden]{display:none}
   .tfilter>summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:13px;background:var(--card);color:var(--ink)}
@@ -501,6 +502,35 @@ function numInput(prev, mark = true){
   }
   return i;
 }
+// 金額輸入框：打字時自動加千分位（2,900,000），讀值時再把逗號拿掉
+function fmtThousands(v){
+  const t = String(v ?? '').replace(/[^\d.]/g, '');
+  if (!t) return '';
+  const [int, ...dec] = t.split('.');
+  const i2 = (int.replace(/^0+(?=\d)/, '') || (dec.length ? '0' : '')).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return dec.length ? i2 + '.' + dec.join('') : i2;
+}
+function moneyInput(prev){
+  const i = h('input', {type:'text', inputmode:'decimal', autocomplete:'off', class:'money-in'});
+  const raw = () => i.value.replace(/,/g, '');
+  if (prev !== null && prev !== undefined && prev !== ''){
+    i.value = fmtThousands(prev);
+    i.dataset.prev = String(prev);
+    i.title = '上次：' + money(prev);
+  }
+  const mark = () => i.classList.toggle('same', i.dataset.prev !== undefined && raw() === i.dataset.prev);
+  i.addEventListener('input', () => {
+    const pos = i.selectionStart ?? i.value.length;
+    const digitsBefore = i.value.slice(0, pos).replace(/[^\d.]/g, '').length;
+    i.value = fmtThousands(i.value);
+    let n = 0, p = 0;
+    while (p < i.value.length && n < digitsBefore){ if (/[\d.]/.test(i.value[p])) n++; p++; }
+    try { i.setSelectionRange(p, p); } catch (e) {}
+    mark();
+  });
+  mark();
+  return i;
+}
 function fnum(v){ return (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v); }
 function calcAsset(f){   // f: {units, price, fx, costPrice, costFx}
   const u = fnum(f.units), p = fnum(f.price), cp = fnum(f.costPrice);
@@ -727,7 +757,7 @@ function addLiabRow(d = {}){
   const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
   const handleTd = h('td', {class:'drag-td'}, handle);
   tr.append(handleTd, h('td',null,ownerInp), h('td',null,kindInp), h('td',null,nameSel),
-    h('td',null,numInput(d.amount)),
+    h('td',null,moneyInput(d.amount)),
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>tr.remove()})));
   handle.addEventListener('mousedown', () => { tr.draggable = true; });
   handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
@@ -822,7 +852,7 @@ function readRows(body){
   const out = [];
   for (const tr of body.querySelectorAll('tr')){
     const c = tr.querySelectorAll('select,input');
-    out.push({ owner:c[0].value, kind:c[1].value, name:nameOfKey(c[2].value).trim(), amount:c[3].value });
+    out.push({ owner:c[0].value, kind:c[1].value, name:nameOfKey(c[2].value).trim(), amount:c[3].value.replace(/,/g, '') });
   }
   return out;
 }
