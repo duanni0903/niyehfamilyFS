@@ -51,6 +51,9 @@
   .drag-td{width:1.6em;text-align:center;padding:0 4px!important}
   .drag-handle{cursor:grab;color:var(--muted,#888);font-size:16px;user-select:none;touch-action:none;display:inline-block;padding:4px}
   tr.dragging{opacity:.4}
+  tr.grp-head td{background:#e9eef5;font-weight:700;cursor:pointer;user-select:none;padding:7px 10px}
+  tr.grp-head .gcnt{font-weight:400;color:#667;margin-left:6px}
+  tr.row-f.grp-hide{display:none}
   tr.drag-over-top td{box-shadow:inset 0 2px 0 0 var(--brand,#2563eb)}
   tr.drag-over-bottom td{box-shadow:inset 0 -2px 0 0 var(--brand,#2563eb)}
   .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
@@ -605,7 +608,7 @@ function fillTargetOptions(sel){
 }
 function refreshTargetSelects(){
   document.querySelectorAll('select.tsel').forEach(fillTargetOptions);
-  document.querySelectorAll('#futBody tr').forEach(tr => {
+  document.querySelectorAll('#futBody tr.row-f').forEach(tr => {
     const typeEl = tr.querySelector('[data-f="type"]'), kindEl = tr.querySelector('[data-f="kind"]'),
       intoEl = tr.querySelector('[data-f="into"]'), invEl = tr.querySelector('[data-f="invTarget"]');
     if (typeEl && kindEl && intoEl && invEl && !invEl.disabled) fillInvTargetOptions(invEl, invTargetKindField(typeEl.value, kindEl.value, intoEl.value), invEl.value, invTargetCat(typeEl.value));
@@ -986,6 +989,37 @@ function periodEditor(hidden){
 document.addEventListener('click', e => { document.querySelectorAll('details.pfilter[open]').forEach(x => { if (!x.contains(e.target)) x.open = false; }); });
 window.addEventListener('scroll', e => { document.querySelectorAll('details.pfilter[open]').forEach(x => { if (!x.contains(e.target)) x.open = false; }); }, true);
 
+/* 計算未來：依類別分區塊（只是畫面分組，儲存時照畫面順序存） */
+let futCollapsed = {};
+try { futCollapsed = JSON.parse(localStorage.getItem('futCollapsed') || '{}') || {}; } catch (e) { futCollapsed = {}; }
+function saveFutCollapsed(){ try { localStorage.setItem('futCollapsed', JSON.stringify(futCollapsed)); } catch (e) {} }
+const futTypeOf = tr => { const e = tr.querySelector('[data-f="type"]'); return e ? e.value : ''; };
+function regroupFut(){
+  const body = $('futBody');
+  const rows = [...body.querySelectorAll('tr.row-f')];
+  body.querySelectorAll('tr.grp-head').forEach(x => x.remove());
+  const cols = document.querySelectorAll('#tab-future thead th').length || 11;
+  FUT_TYPES.forEach(t => {
+    const g = rows.filter(r => futTypeOf(r) === t);
+    if (!g.length) return;
+    const head = h('tr', {class:'grp-head'}, h('td', {colspan: cols}));
+    head.dataset.grp = t;
+    head.onclick = () => { futCollapsed[t] = !futCollapsed[t]; saveFutCollapsed(); updateFutHeads(); };
+    body.append(head);
+    g.forEach(r => body.append(r));
+  });
+  updateFutHeads();
+}
+function updateFutHeads(){
+  const body = $('futBody');
+  body.querySelectorAll('tr.grp-head').forEach(head => {
+    const t = head.dataset.grp, rows = [...body.querySelectorAll('tr.row-f')].filter(r => futTypeOf(r) === t);
+    const vis = rows.filter(r => r.style.display !== 'none').length, closed = !!futCollapsed[t];
+    rows.forEach(r => r.classList.toggle('grp-hide', closed));
+    head.firstChild.replaceChildren(`${closed ? '▶' : '▼'} ${t}`, h('span', {class:'gcnt', text: vis === rows.length ? `${rows.length} 筆` : `顯示 ${vis} / ${rows.length} 筆`}));
+    head.style.display = vis === 0 && rows.length ? 'none' : '';
+  });
+}
 function addFutRow(d = {}){
   const type = tag(select(FUT_TYPES, d.type || '收入'), 'type');
   const kind = tag(select(kindsFor(type.value), d.kind), 'kind');
@@ -1016,6 +1050,7 @@ function addFutRow(d = {}){
     into.value = opts.includes(prevInto) ? prevInto : opts[0];
     invSel.replaceChildren();
     syncInv(); syncTerm();
+    futCollapsed[type.value] = false; regroupFut();
   };
   kind.onchange = syncInv;
   into.onchange = syncInv;
@@ -1023,7 +1058,7 @@ function addFutRow(d = {}){
   const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
   const handleTd = h('td', {class:'drag-td'}, handle);
   tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), h('td',null,name), h('td',null,period,periodCtl), h('td',null,amount), h('td',null,into), invTd, termTd,
-    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>{ if (confirm(`確定要刪除這一列嗎？${name.value.trim() ? '（' + name.value.trim() + '）' : ''}`)) tr.remove(); }})));
+    h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>{ if (confirm(`確定要刪除這一列嗎？${name.value.trim() ? '（' + name.value.trim() + '）' : ''}`)){ tr.remove(); regroupFut(); } }})));
   handle.addEventListener('mousedown', () => { tr.draggable = true; });
   handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
   tr.addEventListener('dragstart', (e) => {
@@ -1034,11 +1069,14 @@ function addFutRow(d = {}){
   tr.addEventListener('dragend', () => { tr.draggable = false; tr.classList.remove('dragging'); });
   syncInv(); syncTerm();
   $('futBody').append(tr);
+  regroupFut();
+  return tr;
 }
 (function(){
   const body = $('futBody');
   function getDragAfterElement(y){
-    const rows = [...body.querySelectorAll('tr:not(.dragging)')];
+    const dg = body.querySelector('tr.dragging'), grp = dg ? futTypeOf(dg) : '';
+    const rows = [...body.querySelectorAll('tr.row-f:not(.dragging)')].filter(r => futTypeOf(r) === grp);
     return rows.reduce((closest, row) => {
       const box = row.getBoundingClientRect();
       const offset = y - box.top - box.height / 2;
@@ -1052,8 +1090,10 @@ function addFutRow(d = {}){
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const after = getDragAfterElement(e.clientY);
-    if (after == null) body.append(dragging);
-    else if (after !== dragging) body.insertBefore(dragging, after);
+    if (after == null){
+      const same = [...body.querySelectorAll('tr.row-f:not(.dragging)')].filter(r => futTypeOf(r) === futTypeOf(dragging));
+      if (same.length) same[same.length - 1].after(dragging);
+    } else if (after !== dragging) body.insertBefore(dragging, after);
   });
 })();
 (function(){ const dl = h('datalist',{id:'periods'});
@@ -1068,7 +1108,7 @@ function applyFutFilter(){
   const owner = $('futFilterOwner').value, type = $('futFilterType').value, into = $('futFilterInto').value;
   const text = $('futFilterText').value.trim().toLowerCase();
   let shown = 0, total = 0;
-  for (const tr of $('futBody').querySelectorAll('tr')){
+  for (const tr of $('futBody').querySelectorAll('tr.row-f')){
     total++;
     const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? e.value : ''; };
     const ok = (!owner || g('owner') === owner) && (!type || g('type') === type) && (!into || g('into') === into) &&
@@ -1077,6 +1117,7 @@ function applyFutFilter(){
     if (ok) shown++;
   }
   $('futFilterInfo').textContent = (owner || type || into || text) ? `顯示 ${shown} / ${total} 筆` : '';
+  updateFutHeads();
 }
 ['futFilterOwner','futFilterType','futFilterInto'].forEach(id => $(id).onchange = applyFutFilter);
 $('futFilterText').oninput = applyFutFilter;
@@ -1084,7 +1125,11 @@ $('futFilterClear').onclick = () => {
   $('futFilterOwner').value = ''; $('futFilterType').value = ''; $('futFilterInto').value = ''; $('futFilterText').value = '';
   applyFutFilter();
 };
-$('addFut').onclick = () => addFutRow();
+$('addFut').onclick = () => {
+  futCollapsed['收入'] = false; saveFutCollapsed();
+  const tr = addFutRow(); updateFutHeads();
+  if (tr && tr.scrollIntoView) tr.scrollIntoView({block:'center'});
+};
 async function loadFuture(){
   const c = cget('getFuture');
   if (c){ $('futBody').replaceChildren(); c.forEach(addFutRow); state.futureLoaded = true; applyFutFilter(); }
@@ -1134,7 +1179,7 @@ $('saveCutoff').onclick = async () => {
 };
 $('saveFut').onclick = async () => {
   const rows = [];
-  for (const tr of $('futBody').querySelectorAll('tr')){
+  for (const tr of $('futBody').querySelectorAll('tr.row-f')){
     const g = k => { const e = tr.querySelector(`[data-f="${k}"]`); return e ? e.value : ''; };
     const invKey = g('invTarget');
     const [invOwner, invName] = invKey ? [invKey.split(KSEP)[0], nameOfKey(invKey)] : ['', ''];
