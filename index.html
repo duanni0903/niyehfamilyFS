@@ -247,6 +247,8 @@
       <b>還款</b>：性質選貸款或其他，「計入至」選從銀行或共同帳戶扣款，「指定標的」選要還哪一筆負債（先到標的管理建立負債標的），金額填每月還款。
       每月扣款帳戶跟那筆負債同時減少，淨值不變；扣到負債剩 0 就自動停止。負債金額請用「剩下還要繳的總額」記錄。<br>
       <b>週期</b>：點週期按鈕選類型（每月／每年選月份／每隔 N 個月／單次），可以再選開始、結束年月，不填就是沒有限制。<br>
+      <b>撥款</b>：貸款撥下來、直接變成資產（例如預售屋交屋時的房貸）。性質選貸款，「計入至」選不動產，「指定標的」選那筆負債標的，週期選「單次」＝撥款的年月，金額＝撥款金額，貸款條件填年利率、寬限期（年，沒有就填 0）、總年限（含寬限期）。
+      撥款當月：貸款和不動產各增加撥款金額，銀行不動。寬限期內每月只付利息（銀行扣、記為支出，貸款餘額不變）；之後每月本息平均攤還（利息記為支出，本金減少貸款）。撥款前自備的尾款請另外記一筆「投資」到不動產。<br>
       金額一律填正數。
     </p>
     <div class="bar">
@@ -264,7 +266,7 @@
       <span class="note" id="futFilterInfo"></span>
     </div>
     <div class="scroll"><table>
-      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>備註</th><th>週期</th><th class="num">金額</th><th>計入至</th><th>指定標的</th><th></th></tr></thead>
+      <thead><tr><th></th><th>負責人</th><th>類別</th><th>性質</th><th>備註</th><th>週期</th><th class="num">金額</th><th>計入至</th><th>指定標的</th><th>貸款條件（撥款用）</th><th></th></tr></thead>
       <tbody id="futBody"></tbody>
     </table></div>
     <div class="bar">
@@ -320,7 +322,8 @@ const OWNERS = ['倪端','葉芳瑜','雙方'];
 const ASSET_KINDS = ['股票','銀行','不動產','共同帳戶','虛擬貨幣','其他'];
 const LIAB_KINDS = ['貸款','其他'];
 const FUT_OWNERS = ['倪端','葉芳瑜','兩人'];
-const FUT_TYPES = ['收入','支出','投資','還款'];
+const FUT_TYPES = ['收入','支出','投資','還款','撥款'];
+const DRAW_ASSET = '不動產';
 const REPAY_ACCOUNTS = ['銀行','共同帳戶'];
 const INCOME_KINDS = ['月薪','獎金','股利','其他收入'];
 const EXPENSE_KINDS = ['固定支出','其他支出'];
@@ -895,13 +898,13 @@ $('btnSubmit').onclick = async () => {
 };
 
 /* ---------- 計算未來 ---------- */
-function kindsFor(type){ return type === '收入' ? INCOME_KINDS : type === '支出' ? EXPENSE_KINDS : type === '還款' ? LIAB_KINDS : FLOW_KINDS; }
-function intoFor(type){ return type === '還款' ? REPAY_ACCOUNTS : FLOW_KINDS; }
+function kindsFor(type){ return type === '收入' ? INCOME_KINDS : type === '支出' ? EXPENSE_KINDS : (type === '還款' || type === '撥款') ? LIAB_KINDS : FLOW_KINDS; }
+function intoFor(type){ return type === '還款' ? REPAY_ACCOUNTS : type === '撥款' ? [DRAW_ASSET] : FLOW_KINDS; }
 // 投資：性質（買什麼）決定要不要挑標的，且一定要挑；收入/支出：計入至（存進/扣出哪個性質）決定要不要挑，但選填（不填就按性質整體的加權平均估）
-function invTargetKindField(type, kind, into){ return type === '投資' || type === '還款' ? kind : into; }
-function invTargetCat(type){ return type === '還款' ? '負債' : '資產'; }
-function needsInvTarget(type, kind, into){ return type === '還款' || TARGET_LEVEL_KINDS.includes(invTargetKindField(type, kind, into)); }
-function invTargetRequired(type, kind, into){ return type === '還款' || (type === '投資' && needsInvTarget(type, kind, into)); }
+function invTargetKindField(type, kind, into){ return type === '投資' || type === '還款' || type === '撥款' ? kind : into; }
+function invTargetCat(type){ return type === '還款' || type === '撥款' ? '負債' : '資產'; }
+function needsInvTarget(type, kind, into){ return type === '還款' || type === '撥款' || TARGET_LEVEL_KINDS.includes(invTargetKindField(type, kind, into)); }
+function invTargetRequired(type, kind, into){ return type === '還款' || type === '撥款' || (type === '投資' && needsInvTarget(type, kind, into)); }
 function fillInvTargetOptions(sel, kind, cur, cat = '資產'){
   const list = state.targets.filter(t => t.cat === cat && t.kind === kind && t.status === '使用中');
   const opts = [h('option', {value:'', text:'請選擇標的'}), ...list.map(t => h('option', {value:tkey(t.owner, t.name), text:`${t.name}（${t.owner}）`}))];
@@ -992,6 +995,11 @@ function addFutRow(d = {}){
   const amount = tag(h('input', {type:'number', step:'any', inputmode:'decimal', value:d.amount ?? ''}), 'amount');
   const name = tag(h('input', {type:'text', value:d.name || '', placeholder:'備註，例：薪資、0050'}), 'name');
   const owner = tag(select(FUT_OWNERS, d.owner), 'owner');
+  const numIn = (f, v, ph, w) => tag(h('input', {type:'number', step:'any', inputmode:'decimal', value: v ?? '', placeholder: ph, style:`width:${w}px;min-width:0`}), f);
+  const rate = numIn('rate', d.rate, '利率%', 62), grace = numIn('grace', d.graceYears, '寬限年', 62), term = numIn('term', d.termYears, '總年限', 62);
+  const termBox = h('div', {class:'prow', style:'display:flex;gap:4px;flex-wrap:nowrap'}, rate, grace, term);
+  const termTd = h('td', null, termBox);
+  function syncTerm(){ const on = type.value === '撥款'; [rate, grace, term].forEach(x => x.disabled = !on); termBox.style.opacity = on ? '1' : '.35'; }
   const invCur = d.invTargetOwner && d.invTargetName ? tkey(d.invTargetOwner, d.invTargetName) : '';
   const invSel = tag(h('select'), 'invTarget');
   const invTd = h('td', null, invSel);
@@ -1007,14 +1015,14 @@ function addFutRow(d = {}){
     into.replaceChildren(...opts.map(o => h('option',{value:o,text:o})));
     into.value = opts.includes(prevInto) ? prevInto : opts[0];
     invSel.replaceChildren();
-    syncInv();
+    syncInv(); syncTerm();
   };
   kind.onchange = syncInv;
   into.onchange = syncInv;
   const tr = h('tr', {class:'row-f'});
   const handle = h('span', {class:'drag-handle', title:'按住拖曳調整順序', text:'⠿'});
   const handleTd = h('td', {class:'drag-td'}, handle);
-  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), h('td',null,name), h('td',null,period,periodCtl), h('td',null,amount), h('td',null,into), invTd,
+  tr.append(handleTd, h('td',null,owner), h('td',null,type), h('td',null,kind), h('td',null,name), h('td',null,period,periodCtl), h('td',null,amount), h('td',null,into), invTd, termTd,
     h('td',null,h('button',{class:'x',type:'button',title:'刪除',text:'×',onclick:()=>{ if (confirm(`確定要刪除這一列嗎？${name.value.trim() ? '（' + name.value.trim() + '）' : ''}`)) tr.remove(); }})));
   handle.addEventListener('mousedown', () => { tr.draggable = true; });
   handle.addEventListener('touchstart', () => { tr.draggable = true; }, {passive:true});
@@ -1024,7 +1032,7 @@ function addFutRow(d = {}){
     try { e.dataTransfer.setData('text/plain', ''); } catch (err) {}
   });
   tr.addEventListener('dragend', () => { tr.draggable = false; tr.classList.remove('dragging'); });
-  syncInv();
+  syncInv(); syncTerm();
   $('futBody').append(tr);
 }
 (function(){
@@ -1132,19 +1140,28 @@ $('saveFut').onclick = async () => {
     const [invOwner, invName] = invKey ? [invKey.split(KSEP)[0], nameOfKey(invKey)] : ['', ''];
     rows.push({
       owner: g('owner'), type: g('type'), kind: g('kind'), name: g('name').trim(), into: g('into'),
-      period: g('period').trim(), amount: g('amount'), invTargetOwner: invOwner, invTargetName: invName
+      period: g('period').trim(), amount: g('amount'), invTargetOwner: invOwner, invTargetName: invName,
+      rate: g('rate'), graceYears: g('grace'), termYears: g('term')
     });
   }
   for (const [i, r] of rows.entries()){
     if (!r.name) return toast(`第 ${i+1} 列：請填標的（備註用）`, true);
     if (!r.into) return toast(`第 ${i+1} 列：請選擇「計入至」`, true);
     if (r.type === '還款' && !REPAY_ACCOUNTS.includes(r.into)) return toast(`第 ${i+1} 列：還款要選從銀行或共同帳戶扣款`, true);
-    if (invTargetRequired(r.type, r.kind, r.into) && !r.invTargetName) return toast(r.type === '還款' ? `第 ${i+1} 列：還款要在「指定標的」選還哪一筆負債（先到標的管理建立）` : `第 ${i+1} 列：投資到「${r.kind}」要指定一個標的`, true);
+    if (r.type === '撥款'){
+      if (r.into !== DRAW_ASSET) return toast(`第 ${i+1} 列：撥款的「計入至」目前只能選${DRAW_ASSET}`, true);
+      if (!/^單次\d{4}\/\d{1,2}/.test(r.period)) return toast(`第 ${i+1} 列：撥款的週期請選「單次」（撥款的年月）`, true);
+      const rt = Number(r.rate), gr = Number(r.graceYears), tm = Number(r.termYears);
+      if (r.rate === '' || !(rt >= 0 && rt <= 30)) return toast(`第 ${i+1} 列：請填年利率（%），例如 3.3`, true);
+      if (r.graceYears === '' || !(gr >= 0 && gr <= 30)) return toast(`第 ${i+1} 列：請填寬限期（年），沒有寬限期填 0`, true);
+      if (r.termYears === '' || !(tm > gr && tm <= 50)) return toast(`第 ${i+1} 列：總年限要大於寬限期，例如 30`, true);
+    }
+    if (invTargetRequired(r.type, r.kind, r.into) && !r.invTargetName) return toast(r.type === '撥款' ? `第 ${i+1} 列：撥款要在「指定標的」選是哪一筆貸款（先到標的管理建立負債標的）` : r.type === '還款' ? `第 ${i+1} 列：還款要在「指定標的」選還哪一筆負債（先到標的管理建立）` : `第 ${i+1} 列：投資到「${r.kind}」要指定一個標的`, true);
     if (!PERIOD_RE.test(r.period)) return toast(`第 ${i+1} 列：週期還沒設定完整，請點週期重新選`, true);
     if (r.amount === '' || isNaN(Number(r.amount)) || Number(r.amount) < 0) return toast(`第 ${i+1} 列：金額請填正數`, true);
   }
   enqueue('saveFuture', {rows}, '計算未來');
-  cset('getFuture', rows.map(r => Object.assign({}, r, { amount: Number(r.amount) })));
+  cset('getFuture', rows.map(r => Object.assign({}, r, { amount: Number(r.amount), rate: r.rate === '' ? null : Number(r.rate), graceYears: r.graceYears === '' ? null : Number(r.graceYears), termYears: r.termYears === '' ? null : Number(r.termYears) })));
   toast(`已存好 ${rows.length} 列，背景上傳中`);
 };
 
@@ -1391,7 +1408,7 @@ function renderOwners(){
 const STMT_NOTES = {
   balanceSheet: '現金＝銀行＋共同帳戶；流動資產＝現金＋股票＋虛擬貨幣；預估月份沒有資產負債資料，所以空白。',
   incomeStatement: '現金基礎的收支結餘；支出以括號（負數）表示。下半部把淨值變動拆成「本期損益」與「投資損益、貸款本金及其他」。',
-  cashFlow: '現金＝銀行＋共同帳戶，只看這兩個帳戶的錢怎麼進出，股票漲跌不算。預估月份全部依「計算未來」：營業＝收入／支出、投資＝從現金買股票等（兩個現金帳戶互轉不算）、融資＝還款。實際月份買賣股票沒有逐筆紀錄，會落在「其他／未分類差額」；這一行在實際月份很大，通常是有買賣或收支漏記。'
+  cashFlow: '現金＝銀行＋共同帳戶，只看這兩個帳戶的錢怎麼進出，股票漲跌不算。預估月份全部依「計算未來」：營業＝收入／支出（含貸款利息）、投資＝從現金買股票等（兩個現金帳戶互轉不算）、融資＝還款本金。實際月份買賣股票沒有逐筆紀錄，會落在「其他／未分類差額」；這一行在實際月份很大，通常是有買賣或收支漏記。'
 };
 function applyStatements(S){
   if (!S || !S.balanceSheet) return;
