@@ -73,7 +73,14 @@
   .tfilter>summary::after{content:' ▾';color:var(--muted)}
   .tfilter .panel{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:max-content;min-width:200px;max-width:min(340px, calc(100vw - 32px));max-height:60vh;overflow-x:hidden;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;box-shadow:0 4px 16px rgba(0,0,0,.15)}
   .tfilter .acts{display:flex;gap:6px;margin-bottom:4px}
-  .tfilter .grp{font-weight:700;margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
+  .tfilter .tnode.l1{margin-top:8px;border-top:1px solid var(--line);padding-top:4px}
+  .tfilter .thead{display:flex;align-items:center}
+  .tfilter .thead.l1 label{font-weight:700}
+  .tfilter .thead.l2 label{font-weight:600}
+  .tfilter .ttog{display:inline-block;width:16px;flex:none;text-align:center;cursor:pointer;color:var(--muted);user-select:none;font-size:12px}
+  .tfilter .tkids{margin-left:7px;padding-left:9px;border-left:1px solid var(--line)}
+  .tfilter .tkids[hidden]{display:none}
+  .tfilter label.leaf{font-weight:400;padding-left:2px}
   .tfilter label{display:flex;align-items:center;font-size:13px;padding:3px 0;cursor:pointer;white-space:nowrap}
   .tfilter label .note{margin-left:6px}
   .tfilter input[type=checkbox]{width:auto;min-width:0;margin:0 6px 0 0;padding:0;flex:none}
@@ -1246,6 +1253,9 @@ $('tblModeTargets').onclick = () => { state.reportTableMode = 'targets'; state.r
 // 「各標的」篩選：記住被取消勾選的標的（新標的預設顯示）
 state.tgtHidden = new Set();
 try { state.tgtHidden = new Set(JSON.parse(localStorage.getItem('tgtDetailHidden') || '[]')); } catch (e) {}
+state.tgtCollapsed = new Set();
+try { state.tgtCollapsed = new Set(JSON.parse(localStorage.getItem('tgtDetailCollapsed') || '[]')); } catch (e) {}
+function saveTgtCollapsed(){ try { localStorage.setItem('tgtDetailCollapsed', JSON.stringify([...state.tgtCollapsed])); } catch (e) {} }
 function saveTgtHidden(){ try { localStorage.setItem('tgtDetailHidden', JSON.stringify([...state.tgtHidden])); } catch (e) {} }
 document.addEventListener('click', e => { const f = $('tgtDetailFilter'); if (f.open && !f.contains(e.target)) f.open = false; });
 function buildTargetFilter(all){
@@ -1258,26 +1268,35 @@ function buildTargetFilter(all){
     panel.append(h('div', {class:'acts'},
       h('button', {class:'btn small ghost', type:'button', text:'全選', onclick:() => setAll(true)}),
       h('button', {class:'btn small ghost', type:'button', text:'全不選', onclick:() => setAll(false)})));
+    const mkTog = (ck, kids) => {
+      const tog = h('span', {class:'ttog', text: state.tgtCollapsed.has(ck) ? '▸' : '▾', role:'button', tabindex:'0', title:'展開／收合'});
+      const flip = ev => { ev.preventDefault(); ev.stopPropagation(); const c = !state.tgtCollapsed.has(ck); c ? state.tgtCollapsed.add(ck) : state.tgtCollapsed.delete(ck); kids.hidden = c; tog.textContent = c ? '▸' : '▾'; saveTgtCollapsed(); };
+      tog.onclick = flip; tog.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') flip(ev); };
+      kids.hidden = state.tgtCollapsed.has(ck);
+      return tog;
+    };
+    const groupBox = (attr, val, items) => {
+      const b = h('input', {type:'checkbox'}); b.setAttribute(attr, val);
+      b.onchange = () => { items.forEach(t => b.checked ? state.tgtHidden.delete(t.key) : state.tgtHidden.add(t.key)); saveTgtHidden(); renderReport(); };
+      return b;
+    };
     ['股票', '虛擬貨幣', '負債'].forEach(k => {
       const items = all.filter(t => t.kind === k);
       if (!items.length) return;
-      const grpBox = h('input', {type:'checkbox', 'data-grp':k});
-      grpBox.onchange = () => { items.forEach(t => grpBox.checked ? state.tgtHidden.delete(t.key) : state.tgtHidden.add(t.key)); saveTgtHidden(); renderReport(); };
-      panel.append(h('label', {class:'grp'}, grpBox, ' ' + k));
+      const kids1 = h('div', {class:'tkids'});
+      const head1 = h('div', {class:'thead l1'}, mkTog(k, kids1), h('label', null, groupBox('data-grp', k, items), ' ' + k, h('span', {class:'note', text:`${items.length}`})));
+      panel.append(h('div', {class:'tnode l1'}, head1, kids1));
       items.forEach(t => {
         const box = h('input', {type:'checkbox', 'data-key':t.key});
         box.onchange = () => { box.checked ? state.tgtHidden.delete(t.key) : state.tgtHidden.add(t.key); saveTgtHidden(); renderReport(); };
-        panel.append(h('label', null, box, ' ' + t.name, h('span', {class:'note', text:t.owner + (t.sub ? '・' + t.sub : '')})));
+        kids1.append(h('label', {class:'leaf'}, box, ' ' + t.name, h('span', {class:'note', text:t.owner + (t.sub ? '・' + t.sub : '')})));
       });
     });
   }
   // 同步勾選狀態
   panel.querySelectorAll('input[data-key]').forEach(b => { b.checked = !state.tgtHidden.has(b.dataset.key); });
-  panel.querySelectorAll('input[data-grp]').forEach(g => {
-    const items = all.filter(t => t.kind === g.dataset.grp);
-    const on = items.filter(t => !state.tgtHidden.has(t.key)).length;
-    g.checked = on === items.length; g.indeterminate = on > 0 && on < items.length;
-  });
+  const syncBox = (g, items) => { const on = items.filter(t => !state.tgtHidden.has(t.key)).length; g.checked = on === items.length; g.indeterminate = on > 0 && on < items.length; };
+  panel.querySelectorAll('input[data-grp]').forEach(g => syncBox(g, all.filter(t => t.kind === g.dataset.grp)));
   const shown = all.filter(t => !state.tgtHidden.has(t.key)).length;
   $('tgtDetailSummary').textContent = shown === all.length ? `標的：全部（${all.length}）` : `標的：已選 ${shown} / ${all.length}`;
 }
