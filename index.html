@@ -207,6 +207,12 @@
   <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas>
     <div class="bar" style="margin-top:8px"><label class="note"><input type="checkbox" id="chartShowPlan" checked> 顯示 PLAN 值</label></div>
   </div>
+  <div class="card" id="trendCard"><div class="bar"><h2 style="margin:0">明細趨勢（月底）</h2>
+      <details class="tfilter" id="trendFilter"><summary id="trendSummary">線條：已選 3</summary><div class="panel" id="trendPanel"></div></details>
+      <span class="note">實線＝實際、虛線＝預估</span></div>
+    <canvas id="trendChart" style="margin-top:8px"></canvas>
+    <div class="note" id="trendNote" style="margin-top:6px"></div>
+  </div>
   <div class="card">
     <div class="bar"><h2 style="margin:0">月報表</h2>
       <button class="btn small" id="tblModeActual" type="button">實際/預估</button>
@@ -1304,6 +1310,83 @@ function buildTargetFilter(all){
   $('tgtDetailSummary').textContent = shown === all.length ? `標的：全部（${all.length}）` : `標的：已選 ${shown} / ${all.length}`;
 }
 
+/* ---------- 明細趨勢圖（可篩選線條） ---------- */
+const TREND_DEFAULT = ['b:總資產', 'b:總負債', 'b:淨值（總資產－總負債）'];
+const TREND_COLORS = ['#c0392b','#1f77b4','#2e8b57','#d4a017','#8e44ad','#e67e22','#16a085','#7f8c8d','#d81b60','#3949ab','#6d4c41','#00838f','#9e9d24','#5d4037','#455a64'];
+state.trendSel = null;
+try { const a = JSON.parse(localStorage.getItem('trendSel') || 'null'); if (Array.isArray(a)) state.trendSel = new Set(a); } catch (e) {}
+if (!state.trendSel) state.trendSel = new Set(TREND_DEFAULT);
+state.trendCollapsed = new Set(['股票', '虛擬貨幣', '負債']);
+function saveTrendSel(){ try { localStorage.setItem('trendSel', JSON.stringify([...state.trendSel])); } catch (e) {} }
+document.addEventListener('click', e => { const f = $('trendFilter'); if (f && f.open && !f.contains(e.target)) f.open = false; });
+function trendSeries(R){
+  // 回傳 [{group, key, label, note, values}]；values 對齊 R.months
+  const out = [], B = R.balance && R.balance.rows, TD = R.targetDetail;
+  const num = v => typeof v === 'number' ? v : null;
+  const sum = [['總資產','總資產'],['總負債','總負債'],['淨值','淨值（總資產－總負債）'],['股票','股票'],['虛擬貨幣','虛擬貨幣'],['銀行','銀行'],['共同帳戶','共同帳戶'],['不動產','不動產'],['貸款','貸款']];
+  sum.forEach(([name, lab]) => {
+    const vals = B && B[lab] ? B[lab].map(num) : (R.rows[lab] ? R.rows[lab].map(num) : null);
+    if (vals && vals.some(v => v !== null && v !== 0) || (vals && ['總資產','總負債','淨值'].includes(name))) out.push({group:'資產負債', key:'b:' + lab, label:name, values:vals});
+  });
+  if (R.rows[L.flow]) out.push({group:'資產負債', key:'b:淨現金流', label:'淨現金流（月）', values:R.rows[L.flow].map(num)});
+  if (TD && TD.kinds) ['股票','虛擬貨幣','負債'].forEach(k => {
+    const ts = (TD.kinds[k] && TD.kinds[k].targets) || [];
+    ts.forEach(t => out.push({group:k, key:'t:' + k + '|' + t.owner + '|' + t.name, label:t.name, note:t.owner + (t.sub ? '・' + t.sub : ''), values:(t.values || []).map(num)}));
+  });
+  return out;
+}
+function buildTrendFilter(series){
+  const panel = $('trendPanel'), sig = series.map(x => x.key).join('\n');
+  if (panel.dataset.sig !== sig){
+    panel.dataset.sig = sig; panel.replaceChildren();
+    const commit = () => { saveTrendSel(); renderTrend(); };
+    panel.append(h('div', {class:'acts'},
+      h('button', {class:'btn small ghost', type:'button', text:'預設', onclick:() => { state.trendSel = new Set(TREND_DEFAULT); commit(); }}),
+      h('button', {class:'btn small ghost', type:'button', text:'全不選', onclick:() => { state.trendSel.clear(); commit(); }})));
+    ['資產負債','股票','虛擬貨幣','負債'].forEach(g => {
+      const items = series.filter(x => x.group === g);
+      if (!items.length) return;
+      const kids = h('div', {class:'tkids'}); kids.hidden = state.trendCollapsed.has(g);
+      const tog = h('span', {class:'ttog', text: kids.hidden ? '▸' : '▾', role:'button', tabindex:'0', title:'展開／收合'});
+      const flip = ev => { ev.preventDefault(); ev.stopPropagation(); kids.hidden = !kids.hidden; kids.hidden ? state.trendCollapsed.add(g) : state.trendCollapsed.delete(g); tog.textContent = kids.hidden ? '▸' : '▾'; };
+      tog.onclick = flip; tog.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') flip(ev); };
+      const gb = h('input', {type:'checkbox'}); gb.dataset.tgrp = g;
+      gb.onchange = () => { items.forEach(x => gb.checked ? state.trendSel.add(x.key) : state.trendSel.delete(x.key)); commit(); };
+      panel.append(h('div', {class:'tnode l1'}, h('div', {class:'thead l1'}, tog, h('label', null, gb, ' ' + g, h('span', {class:'note', text:String(items.length)}))), kids));
+      items.forEach(x => {
+        const b = h('input', {type:'checkbox'}); b.dataset.tkey = x.key;
+        b.onchange = () => { b.checked ? state.trendSel.add(x.key) : state.trendSel.delete(x.key); commit(); };
+        kids.append(h('label', {class:'leaf'}, b, ' ' + x.label, x.note ? h('span', {class:'note', text:x.note}) : null));
+      });
+    });
+  }
+  panel.querySelectorAll('input[data-tkey]').forEach(b => { b.checked = state.trendSel.has(b.dataset.tkey); });
+  panel.querySelectorAll('input[data-tgrp]').forEach(g => {
+    const items = series.filter(x => x.group === g.dataset.tgrp), on = items.filter(x => state.trendSel.has(x.key)).length;
+    g.checked = on === items.length; g.indeterminate = on > 0 && on < items.length;
+  });
+  const n = series.filter(x => state.trendSel.has(x.key)).length;
+  $('trendSummary').textContent = '線條：已選 ' + n + ' / ' + series.length;
+}
+function renderTrend(){
+  const R = state.report; if (!R || !window.Chart) return;
+  const from = $('fromYear').value, idx = [];
+  for (let i = 0; i < R.months.length; i++) if (!from || R.months[i] >= from) idx.push(i);
+  const series = trendSeries(R); buildTrendFilter(series);
+  const est = idx.map(i => (R.rows[L.status] || [])[i] === '預估');
+  const datasets = series.map((x, k) => ({x, k})).filter(o => state.trendSel.has(o.x.key) && o.x.values).map(o => ({
+    label: o.x.label + (o.x.note ? '（' + o.x.note + '）' : ''), data: idx.map(i => o.x.values[i] ?? null),
+    borderColor: TREND_COLORS[o.k % TREND_COLORS.length], backgroundColor: TREND_COLORS[o.k % TREND_COLORS.length],
+    borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .2, spanGaps: true,
+    segment: { borderDash: c => est[c.p1DataIndex] ? [6, 4] : undefined } }));
+  $('trendNote').textContent = datasets.length ? '' : '請從右上「線條」選要顯示的項目。';
+  if (state.trendChart) state.trendChart.destroy();
+  state.trendChart = new Chart($('trendChart'), { type:'line', data:{ labels: idx.map(i => R.months[i]), datasets },
+    options:{ responsive:true, maintainAspectRatio:true, interaction:{mode:'index', intersect:false},
+      scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
+      plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
+}
+
 function renderReport(){
   const R = state.report, rows = R.rows, n = R.months.length;
   const from = $('fromYear').value;
@@ -1347,6 +1430,7 @@ function renderReport(){
         scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
         plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
   }
+  renderTrend();
 
   // 表：依 state.reportTableMode 切換「實際/預估」或「PLAN值」兩種表格
   const mode = state.reportTableMode || 'actual';
