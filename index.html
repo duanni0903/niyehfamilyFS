@@ -211,6 +211,7 @@
     <div class="bar"><h2 style="margin:0">月報表</h2>
       <button class="btn small" id="tblModeActual" type="button">實際/預估</button>
       <button class="btn small" id="tblModePlan" type="button">PLAN值</button>
+      <button class="btn small" id="tblModeBalance" type="button">資產負債</button>
       <button class="btn small" id="tblModeTargets" type="button">各標的</button>
       <details class="tfilter" id="tgtDetailFilter" hidden><summary id="tgtDetailSummary">標的：全部</summary><div class="panel" id="tgtDetailPanel"></div></details>
     </div>
@@ -1234,7 +1235,8 @@ async function loadReport(){
   const R = await fresh('getReport');
   const changed = R && (JSON.stringify(R.rows) !== JSON.stringify(state.report && state.report.rows) ||
     JSON.stringify(R.plan) !== JSON.stringify(state.report && state.report.plan) ||
-    JSON.stringify(R.targetDetail) !== JSON.stringify(state.report && state.report.targetDetail));
+    JSON.stringify(R.targetDetail) !== JSON.stringify(state.report && state.report.targetDetail) ||
+    JSON.stringify(R.balance) !== JSON.stringify(state.report && state.report.balance));
   if (changed) applyReport(R);
   else if (R) { state.report.generatedAt = R.generatedAt; $('reportInfo').textContent = '更新時間 ' + new Date(R.generatedAt).toLocaleString('zh-TW'); }
   else if (!c) $('reportInfo').textContent = '';
@@ -1249,6 +1251,7 @@ $('chartShowPlan').onchange = () => {
 };
 $('tblModeActual').onclick = () => { state.reportTableMode = 'actual'; state.report && renderReport(); };
 $('tblModePlan').onclick = () => { state.reportTableMode = 'plan'; state.report && renderReport(); };
+$('tblModeBalance').onclick = () => { state.reportTableMode = 'balance'; state.report && renderReport(); };
 $('tblModeTargets').onclick = () => { state.reportTableMode = 'targets'; state.report && renderReport(); };
 // 「各標的」篩選：記住被取消勾選的標的（新標的預設顯示）
 state.tgtHidden = new Set();
@@ -1349,9 +1352,40 @@ function renderReport(){
   const mode = state.reportTableMode || 'actual';
   $('tblModeActual').classList.toggle('ghost', mode !== 'actual');
   $('tblModePlan').classList.toggle('ghost', mode !== 'plan');
+  $('tblModeBalance').classList.toggle('ghost', mode !== 'balance');
   $('tblModeTargets').classList.toggle('ghost', mode !== 'targets');
   $('tgtDetailFilter').hidden = mode !== 'targets';
   const t = $('monthTable'); t.replaceChildren();
+
+  if (mode === 'balance') {
+    const B = R.balance && R.balance.rows;
+    if (!B) {
+      $('monthTableNote').textContent = R.balance && R.balance.error ? '資產負債計算失敗：' + R.balance.error : '後端還沒有回傳資產負債資料，請確認 Code.gs 已重新部署。';
+      return;
+    }
+    const bget = (lab, i) => (B[lab] && typeof B[lab][i] === 'number') ? B[lab][i] : null;
+    const dlt = (lab, i) => { const a = bget(lab, i), p = i > 0 ? bget(lab, i - 1) : null; return a !== null && p !== null ? a - p : null; };
+    const has = lab => B[lab] && B[lab].some(v => typeof v === 'number' && v !== 0);
+    const spec = [['股票','股票'],['虛擬貨幣','虛擬貨幣'],['銀行','銀行'],['共同帳戶','共同帳戶'],['不動產','不動產'],['其他','其他'],['總資產','總資產'],
+                  ['貸款','貸款'],['其他負債','其他負債'],['總負債','總負債'],['淨值','淨值（總資產－總負債）']]
+      .filter(([, lab]) => ['總資產','總負債','淨值（總資產－總負債）','不動產','貸款'].includes(lab) || has(lab));
+    const heads = ['月份','狀態', ...spec.map(x => x[0]), '不動產增減', '負債增減'];
+    t.append(h('thead',null,h('tr',null,...heads.map((x,k) => h('th',{class:k>1?'num':'',text:x})))));
+    const tb = h('tbody');
+    idx.forEach(i => {
+      const st = get(L.status, i);
+      const tr = h('tr');
+      tr.append(h('td',{text:R.months[i]}), h('td',null,h('span',{class:'badge' + (st === '預估' ? ' est' : ''),text:st || '–'})));
+      spec.forEach(([, lab]) => tr.append(h('td',{class:'num',text:money(bget(lab, i))})));
+      const dp = dlt('不動產', i), dd = dlt('總負債', i);
+      tr.append(h('td',{class:'num' + (dp !== null && dp < 0 ? ' neg' : '')+ (dp ? ' pos' : ''),text: dp === null ? '–' : money(dp)}),
+                h('td',{class:'num' + (dd !== null && dd > 0 ? ' neg' : '') + (dd ? '' : ''),text: dd === null ? '–' : money(dd)}));
+      tb.append(tr);
+    });
+    t.append(tb);
+    $('monthTableNote').textContent = '資產負債逐月明細，取自「日報表」該月月底（本月用最新快照日），預估月份已含「計算未來」、還款與撥款。不動產增減＝資產變多；負債增減為負＝負債減少（還款）、為正＝負債增加（撥款或新借款）。';
+    return;
+  }
 
   if (mode === 'targets') {
     const TD = R.targetDetail;
