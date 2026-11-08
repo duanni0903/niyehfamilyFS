@@ -50,6 +50,7 @@
   .x{background:none;border:0;color:var(--neg);cursor:pointer;font-size:18px;line-height:1}
   .drag-td{width:1.6em;text-align:center;padding:0 4px!important}
   .drag-handle{cursor:grab;color:var(--muted,#888);font-size:16px;user-select:none;touch-action:none;display:inline-block;padding:4px}
+  .bar label.note input[type=checkbox]{width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}
   tr.dragging{opacity:.4}
   tr.grp-head td{background:#e9eef5;font-weight:700;cursor:pointer;user-select:none;padding:7px 10px}
   tr.grp-head .gcnt{font-weight:400;color:#667;margin-left:6px}
@@ -205,13 +206,7 @@
   </div>
   <div class="tiles" id="tiles"></div>
   <div class="card"><h2>淨值趨勢（月底）</h2><canvas id="chart"></canvas>
-    <div class="bar" style="margin-top:8px"><label class="note"><input type="checkbox" id="chartShowPlan" checked> 顯示 PLAN 值</label></div>
-  </div>
-  <div class="card" id="trendCard"><div class="bar"><h2 style="margin:0">明細趨勢（月底）</h2>
-      <details class="tfilter" id="trendFilter"><summary id="trendSummary">線條：已選 3</summary><div class="panel" id="trendPanel"></div></details>
-      <span class="note">實線＝實際、虛線＝預估</span></div>
-    <canvas id="trendChart" style="margin-top:8px"></canvas>
-    <div class="note" id="trendNote" style="margin-top:6px"></div>
+    <div class="bar" style="margin-top:8px"><label class="note"><input type="checkbox" id="chartShowPlan" checked> 顯示 PLAN 值</label> <label class="note" style="margin-left:12px"><input type="checkbox" id="chartShowNet" checked> 顯示淨值線</label> <span class="note" id="chartExtraNote" style="margin-left:12px"></span></div>
   </div>
   <div class="card">
     <div class="bar"><h2 style="margin:0">月報表</h2>
@@ -1251,6 +1246,11 @@ $('btnReload').onclick = loadReport;
 $('fromYear').onchange = () => state.report && renderReport();
 state.reportTableMode = 'actual';
 try { if (localStorage.getItem('chartShowPlan') === '0') $('chartShowPlan').checked = false; } catch (e) {}
+try { if (localStorage.getItem('chartShowNet') === '0') $('chartShowNet').checked = false; } catch (e) {}
+$('chartShowNet').onchange = () => {
+  try { localStorage.setItem('chartShowNet', $('chartShowNet').checked ? '1' : '0'); } catch (e) {}
+  state.report && renderReport();
+};
 $('chartShowPlan').onchange = () => {
   try { localStorage.setItem('chartShowPlan', $('chartShowPlan').checked ? '1' : '0'); } catch (e) {}
   state.report && renderReport();
@@ -1289,7 +1289,7 @@ function buildTargetFilter(all){
       b.onchange = () => { items.forEach(t => b.checked ? state.tgtHidden.delete(t.key) : state.tgtHidden.add(t.key)); saveTgtHidden(); renderReport(); };
       return b;
     };
-    ['股票', '虛擬貨幣', '負債'].forEach(k => {
+    ['股票', '虛擬貨幣', '不動產', '負債'].forEach(k => {
       const items = all.filter(t => t.kind === k);
       if (!items.length) return;
       const kids1 = h('div', {class:'tkids'});
@@ -1310,81 +1310,24 @@ function buildTargetFilter(all){
   $('tgtDetailSummary').textContent = shown === all.length ? `標的：全部（${all.length}）` : `標的：已選 ${shown} / ${all.length}`;
 }
 
-/* ---------- 明細趨勢圖（可篩選線條） ---------- */
-const TREND_DEFAULT = ['b:總資產', 'b:總負債', 'b:淨值（總資產－總負債）'];
-const TREND_COLORS = ['#c0392b','#1f77b4','#2e8b57','#d4a017','#8e44ad','#e67e22','#16a085','#7f8c8d','#d81b60','#3949ab','#6d4c41','#00838f','#9e9d24','#5d4037','#455a64'];
-state.trendSel = null;
-try { const a = JSON.parse(localStorage.getItem('trendSel') || 'null'); if (Array.isArray(a)) state.trendSel = new Set(a); } catch (e) {}
-if (!state.trendSel) state.trendSel = new Set(TREND_DEFAULT);
-state.trendCollapsed = new Set(['股票', '虛擬貨幣', '負債']);
-function saveTrendSel(){ try { localStorage.setItem('trendSel', JSON.stringify([...state.trendSel])); } catch (e) {} }
-document.addEventListener('click', e => { const f = $('trendFilter'); if (f && f.open && !f.contains(e.target)) f.open = false; });
-function trendSeries(R){
-  // 回傳 [{group, key, label, note, values}]；values 對齊 R.months
-  const out = [], B = R.balance && R.balance.rows, TD = R.targetDetail;
-  const num = v => typeof v === 'number' ? v : null;
-  const sum = [['總資產','總資產'],['總負債','總負債'],['淨值','淨值（總資產－總負債）'],['股票','股票'],['虛擬貨幣','虛擬貨幣'],['銀行','銀行'],['共同帳戶','共同帳戶'],['不動產','不動產'],['貸款','貸款']];
-  sum.forEach(([name, lab]) => {
-    const vals = B && B[lab] ? B[lab].map(num) : (R.rows[lab] ? R.rows[lab].map(num) : null);
-    if (vals && vals.some(v => v !== null && v !== 0) || (vals && ['總資產','總負債','淨值'].includes(name))) out.push({group:'資產負債', key:'b:' + lab, label:name, values:vals});
+/* 圖表用的顏色（標的、資產負債線條） */
+const LINE_COLORS = ['#1f77b4','#2e8b57','#8e44ad','#e67e22','#16a085','#7f8c8d','#d81b60','#3949ab','#6d4c41','#00838f','#9e9d24','#5d4037','#455a64','#ad1457','#558b2f'];
+
+/* 「各標的」的標的清單（含用資產負債表月底值湊出的「不動產」），表格和圖表共用 */
+function targetList(R){
+  const TD0 = R.targetDetail, prop = R.balance && R.balance.rows && R.balance.rows['不動產'];
+  const TD = TD0 && !TD0.error && TD0.kinds && prop
+    ? Object.assign({}, TD0, { kinds: Object.assign({}, TD0.kinds, { '不動產': { targets: [{ owner: '合計', name: '不動產', rate: null, inList: true, values: prop }], bucket: { used: false, values: [] } } }) })
+    : TD0;
+  const all = [];
+  if (!TD || TD.error || !TD.kinds) return { TD, prop, all };
+  const ownerOrder = {'雙方':0, '倪端':1, '葉芳瑜':2};
+  ['股票', '虛擬貨幣', '不動產', '負債'].forEach(k => {
+    const K = TD.kinds[k]; if (!K) return;
+    K.targets.slice().sort((a,b) => (ownerOrder[a.owner] ?? 9) - (ownerOrder[b.owner] ?? 9) || a.name.localeCompare(b.name))
+      .forEach(c => all.push(Object.assign({}, c, {kind:k, key:k + '|' + c.owner + '|' + c.name + (c.sub ? '|' + c.sub : '')})));
   });
-  if (R.rows[L.flow]) out.push({group:'資產負債', key:'b:淨現金流', label:'淨現金流（月）', values:R.rows[L.flow].map(num)});
-  if (TD && TD.kinds) ['股票','虛擬貨幣','負債'].forEach(k => {
-    const ts = (TD.kinds[k] && TD.kinds[k].targets) || [];
-    ts.forEach(t => out.push({group:k, key:'t:' + k + '|' + t.owner + '|' + t.name, label:t.name, note:t.owner + (t.sub ? '・' + t.sub : ''), values:(t.values || []).map(num)}));
-  });
-  return out;
-}
-function buildTrendFilter(series){
-  const panel = $('trendPanel'), sig = series.map(x => x.key).join('\n');
-  if (panel.dataset.sig !== sig){
-    panel.dataset.sig = sig; panel.replaceChildren();
-    const commit = () => { saveTrendSel(); renderTrend(); };
-    panel.append(h('div', {class:'acts'},
-      h('button', {class:'btn small ghost', type:'button', text:'預設', onclick:() => { state.trendSel = new Set(TREND_DEFAULT); commit(); }}),
-      h('button', {class:'btn small ghost', type:'button', text:'全不選', onclick:() => { state.trendSel.clear(); commit(); }})));
-    ['資產負債','股票','虛擬貨幣','負債'].forEach(g => {
-      const items = series.filter(x => x.group === g);
-      if (!items.length) return;
-      const kids = h('div', {class:'tkids'}); kids.hidden = state.trendCollapsed.has(g);
-      const tog = h('span', {class:'ttog', text: kids.hidden ? '▸' : '▾', role:'button', tabindex:'0', title:'展開／收合'});
-      const flip = ev => { ev.preventDefault(); ev.stopPropagation(); kids.hidden = !kids.hidden; kids.hidden ? state.trendCollapsed.add(g) : state.trendCollapsed.delete(g); tog.textContent = kids.hidden ? '▸' : '▾'; };
-      tog.onclick = flip; tog.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') flip(ev); };
-      const gb = h('input', {type:'checkbox'}); gb.dataset.tgrp = g;
-      gb.onchange = () => { items.forEach(x => gb.checked ? state.trendSel.add(x.key) : state.trendSel.delete(x.key)); commit(); };
-      panel.append(h('div', {class:'tnode l1'}, h('div', {class:'thead l1'}, tog, h('label', null, gb, ' ' + g, h('span', {class:'note', text:String(items.length)}))), kids));
-      items.forEach(x => {
-        const b = h('input', {type:'checkbox'}); b.dataset.tkey = x.key;
-        b.onchange = () => { b.checked ? state.trendSel.add(x.key) : state.trendSel.delete(x.key); commit(); };
-        kids.append(h('label', {class:'leaf'}, b, ' ' + x.label, x.note ? h('span', {class:'note', text:x.note}) : null));
-      });
-    });
-  }
-  panel.querySelectorAll('input[data-tkey]').forEach(b => { b.checked = state.trendSel.has(b.dataset.tkey); });
-  panel.querySelectorAll('input[data-tgrp]').forEach(g => {
-    const items = series.filter(x => x.group === g.dataset.tgrp), on = items.filter(x => state.trendSel.has(x.key)).length;
-    g.checked = on === items.length; g.indeterminate = on > 0 && on < items.length;
-  });
-  const n = series.filter(x => state.trendSel.has(x.key)).length;
-  $('trendSummary').textContent = '線條：已選 ' + n + ' / ' + series.length;
-}
-function renderTrend(){
-  const R = state.report; if (!R || !window.Chart) return;
-  const from = $('fromYear').value, idx = [];
-  for (let i = 0; i < R.months.length; i++) if (!from || R.months[i] >= from) idx.push(i);
-  const series = trendSeries(R); buildTrendFilter(series);
-  const est = idx.map(i => (R.rows[L.status] || [])[i] === '預估');
-  const datasets = series.map((x, k) => ({x, k})).filter(o => state.trendSel.has(o.x.key) && o.x.values).map(o => ({
-    label: o.x.label + (o.x.note ? '（' + o.x.note + '）' : ''), data: idx.map(i => o.x.values[i] ?? null),
-    borderColor: TREND_COLORS[o.k % TREND_COLORS.length], backgroundColor: TREND_COLORS[o.k % TREND_COLORS.length],
-    borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .2, spanGaps: true,
-    segment: { borderDash: c => est[c.p1DataIndex] ? [6, 4] : undefined } }));
-  $('trendNote').textContent = datasets.length ? '' : '請從右上「線條」選要顯示的項目。';
-  if (state.trendChart) state.trendChart.destroy();
-  state.trendChart = new Chart($('trendChart'), { type:'line', data:{ labels: idx.map(i => R.months[i]), datasets },
-    options:{ responsive:true, maintainAspectRatio:true, interaction:{mode:'index', intersect:false},
-      scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
-      plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
+  return { TD, prop, all };
 }
 
 function renderReport(){
@@ -1416,9 +1359,30 @@ function renderReport(){
     const netData = rawNet.map((v,k) => statuses[k] === '預估' ? null : v);
     const projData = rawProj.map((v,k) => statuses[k] === '預估' ? v : null);
     if (firstEstPos > 0) projData[firstEstPos - 1] = rawNet[firstEstPos - 1]; // 銜接點：讓兩條線在預估開始前一個月接起來，不留空隙
-    const datasets = [
+    const datasets = [];
+    const netDs = [
       {label:'實際發生', data:netData, borderColor:'#c0392b', backgroundColor:'#c0392b', pointRadius:2, tension:.2, spanGaps:true},
-      {label:'預估淨值', data:projData, borderColor:'#d4a017', backgroundColor:'#d4a017', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:true} ];
+      {label:'預估淨值', data:projData, borderColor:'#d4a017', backgroundColor:'#d4a017', borderDash:[6,4], pointRadius:0, tension:.2, spanGaps:true}];
+    if ($('chartShowNet').checked) datasets.push(...netDs);
+    // 下方表格選什麼，圖就多畫什麼：各標的＝勾選的標的；資產負債＝資產負債各項
+    const curMode = state.reportTableMode || 'actual', extra = [];
+    if (curMode === 'targets') {
+      const { all } = targetList(R);
+      all.forEach((c, k) => { if (!state.tgtHidden.has(c.key)) extra.push({ label: c.name + '（' + c.owner + (c.sub ? '・' + c.sub : '') + '）', vals: c.values, color: LINE_COLORS[k % LINE_COLORS.length], liab: c.kind === '負債' }); });
+    } else if (curMode === 'balance' && R.balance && R.balance.rows) {
+      const B = R.balance.rows;
+      [['總資產','總資產'],['總負債','總負債'],['不動產','不動產'],['貸款','貸款'],['股票','股票'],['虛擬貨幣','虛擬貨幣'],['銀行','銀行']].forEach(([name, lab], k) => {
+        const vals = B[lab]; if (!vals) return;
+        if (!['總資產','總負債'].includes(name) && !vals.some(v => typeof v === 'number' && v !== 0)) return;
+        extra.push({ label: name, vals, color: LINE_COLORS[k % LINE_COLORS.length] });
+      });
+    }
+    const estFlag = idx.map(i => get(L.status, i) === '預估');
+    extra.forEach(x => datasets.push({ label: x.label, data: idx.map(i => typeof x.vals[i] === 'number' ? x.vals[i] : null),
+      borderColor: x.color, backgroundColor: x.color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .2, spanGaps: true,
+      segment: { borderDash: c => estFlag[c.p1DataIndex] ? [6, 4] : undefined } }));
+    if (!extra.length && !$('chartShowNet').checked && !(R.plan && $('chartShowPlan').checked)) datasets.unshift(...netDs);   // 沒有任何線時，還是顯示淨值
+    $('chartExtraNote').textContent = extra.length ? `圖上另外畫出下方表格選的 ${extra.length} 條線（實線＝實際、虛線＝預估）` : '';
     if (R.plan && $('chartShowPlan').checked) {
       const planData = idx.map(i => { const v = R.plan[R.months[i]]; return typeof v === 'number' ? v : null; });
       datasets.push({label:'PLAN值', data:planData, borderColor:'#1f4e78', backgroundColor:'#1f4e78', borderDash:[2,3], pointRadius:0, tension:.2, spanGaps:true});
@@ -1430,7 +1394,6 @@ function renderReport(){
         scales:{ y:{ ticks:{ callback:v => (v/10000).toLocaleString('en-US') + ' 萬' } } },
         plugins:{ tooltip:{ callbacks:{ label:c => c.dataset.label + '：' + money(c.parsed.y) } } } } });
   }
-  renderTrend();
 
   // 表：依 state.reportTableMode 切換「實際/預估」或「PLAN值」兩種表格
   const mode = state.reportTableMode || 'actual';
@@ -1472,24 +1435,16 @@ function renderReport(){
   }
 
   if (mode === 'targets') {
-    const TD = R.targetDetail;
+    const { TD, prop, all } = targetList(R);
     if (!TD || TD.error || !TD.kinds) {
       $('monthTableNote').textContent = TD && TD.error ? '各標的計算失敗：' + TD.error : '後端還沒有回傳各標的資料，請確認 Code.gs 已重新部署。';
       return;
     }
-    const KINDS = ['股票', '虛擬貨幣', '負債'];
-    const ownerOrder = {'雙方':0, '倪端':1, '葉芳瑜':2};
-    const all = [];
-    KINDS.forEach(k => {
-      const K = TD.kinds[k]; if (!K) return;
-      K.targets.slice().sort((a,b) => (ownerOrder[a.owner] ?? 9) - (ownerOrder[b.owner] ?? 9) || a.name.localeCompare(b.name))
-        .forEach(c => all.push(Object.assign({}, c, {kind:k, key:k + '|' + c.owner + '|' + c.name + (c.sub ? '|' + c.sub : '')})));
-    });
     buildTargetFilter(all);
     const tcols = all.filter(c => !state.tgtHidden.has(c.key));
     if (!tcols.length){ $('monthTableNote').textContent = '請在「標的」選單裡至少勾選一個標的。'; return; }
     // 資產（股票、虛擬貨幣）跟負債分開加總、分開跟月報表核對
-    const GROUPS = [{name:'資產', kinds:['股票', '虛擬貨幣']}, {name:'負債', kinds:['負債']}];
+    const GROUPS = [{name:'資產', kinds:['股票', '虛擬貨幣', '不動產']}, {name:'負債', kinds:['負債']}];
     const monthRowOf = k => k === '負債' ? '總負債' : k;
     const pctTxt = r => typeof r === 'number' ? (r * 100).toFixed(1) + '%' : '0%';
     const isFull = k => all.some(c => c.kind === k) && all.filter(c => c.kind === k).every(c => !state.tgtHidden.has(c.key));
@@ -1503,7 +1458,7 @@ function renderReport(){
     const both = groups.length > 1;
     const mixedAsset = new Set(tcols.filter(c => c.kind !== '負債').map(c => c.kind)).size > 1;
     const rowsIdx = idx.filter(i => tcols.some(c => typeof c.values[i] === 'number'));
-    const subOf = c => c.kind === '負債' ? c.owner + '・' + (c.sub || '負債') : c.owner + (mixedAsset && c.kind === '虛擬貨幣' ? '・幣' : '') + '・' + pctTxt(c.rate);
+    const subOf = c => c.kind === '不動產' ? '資產負債表月底值' : c.kind === '負債' ? c.owner + '・' + (c.sub || '負債') : c.owner + (mixedAsset && c.kind === '虛擬貨幣' ? '・幣' : '') + '・' + pctTxt(c.rate);
     const headCells = [h('th', {text:'月份'}), h('th', {text:'狀態'})];
     groups.forEach(g => {
       g.cols.forEach(c => headCells.push(h('th', {class:'num', title: c.inList ? '' : (c.kind === '負債' ? '這筆負債不在「標的」清單裡' : '這個標的不在「標的」清單裡，報酬率當 0%')},
@@ -1525,7 +1480,7 @@ function renderReport(){
         cells.push(h('td', {class:'num', text: money(sum)}));
         if (g.reconcile) {
           let mon = null;
-          g.fullKinds.forEach(k => { const r = R.rows[monthRowOf(k)]; const v = r ? r[i] : null; if (typeof v === 'number') mon = (mon || 0) + v; });
+          g.fullKinds.forEach(k => { const r = R.rows[monthRowOf(k)] || (k === '不動產' ? prop : null); const v = r ? r[i] : null; if (typeof v === 'number') mon = (mon || 0) + v; });
           const diff = typeof mon === 'number' ? sum - mon : null;
           const warn = typeof diff === 'number' && Math.abs(diff) > Math.max(1000, Math.abs(mon) * 0.005);
           cells.push(h('td', {class:'num', text: money(mon)}), h('td', {class:'num' + (warn ? ' neg' : ''), text: diff === null ? '–' : money(diff)}));
@@ -1536,7 +1491,7 @@ function renderReport(){
     t.append(tb);
     const anyAsset = groups.some(g => g.name === '資產'), anyLiab = groups.some(g => g.name === '負債');
     $('monthTableNote').textContent = `最新快照 ${TD.latestSnap}；實際＝當月最近一次快照的金額。` +
-      (anyAsset ? `資產預估＝每檔用自己的年報酬率每日複利，每月 ${TD.trigDay} 號加上「計算未來」裡指定到這個標的的投入；「月報表」是用加權平均報酬率套在整體，所以跟各標的合計會有小差距、且隨時間慢慢變大。` : '') +
+      (anyAsset ? `資產預估＝每檔用自己的年報酬率每日複利，每月 ${TD.trigDay} 號加上「計算未來」裡指定到這個標的的投入（不動產是整體合計，含尾款與貸款撥款）；「月報表」是用加權平均報酬率套在整體，所以跟各標的合計會有小差距、且隨時間慢慢變大。` : '') +
       (anyLiab ? '負債預估＝最新一次快照的金額，扣掉「計算未來」裡的還款，扣到 0 為止；某次快照沒填的負債當作 0，跟日報表一樣。' : '') +
       (groups.every(g => g.reconcile) ? '差異欄變紅（超過 0.5%）代表要檢查。' : '只勾選部分標的的那一組，不顯示跟月報表的核對；要核對請把那一組整組勾滿。') +
       '⚠＝不在「標的」清單裡。';
