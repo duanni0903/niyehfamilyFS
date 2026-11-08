@@ -1237,7 +1237,8 @@ async function loadReport(){
   const changed = R && (JSON.stringify(R.rows) !== JSON.stringify(state.report && state.report.rows) ||
     JSON.stringify(R.plan) !== JSON.stringify(state.report && state.report.plan) ||
     JSON.stringify(R.targetDetail) !== JSON.stringify(state.report && state.report.targetDetail) ||
-    JSON.stringify(R.balance) !== JSON.stringify(state.report && state.report.balance));
+    JSON.stringify(R.balance) !== JSON.stringify(state.report && state.report.balance) ||
+    JSON.stringify(R.propFlow) !== JSON.stringify(state.report && state.report.propFlow));
   if (changed) applyReport(R);
   else if (R) { state.report.generatedAt = R.generatedAt; $('reportInfo').textContent = '更新時間 ' + new Date(R.generatedAt).toLocaleString('zh-TW'); }
   else if (!c) $('reportInfo').textContent = '';
@@ -1289,7 +1290,7 @@ function buildTargetFilter(all){
       b.onchange = () => { items.forEach(t => b.checked ? state.tgtHidden.delete(t.key) : state.tgtHidden.add(t.key)); saveTgtHidden(); renderReport(); };
       return b;
     };
-    ['股票', '虛擬貨幣', '不動產', '負債'].forEach(k => {
+    TGT_KIND_ORDER.forEach(k => {
       const items = all.filter(t => t.kind === k);
       if (!items.length) return;
       const kids1 = h('div', {class:'tkids'});
@@ -1314,20 +1315,29 @@ function buildTargetFilter(all){
 const LINE_COLORS = ['#1f77b4','#2e8b57','#8e44ad','#e67e22','#16a085','#7f8c8d','#d81b60','#3949ab','#6d4c41','#00838f','#9e9d24','#5d4037','#455a64','#ad1457','#558b2f'];
 
 /* 「各標的」的標的清單（含用資產負債表月底值湊出的「不動產」），表格和圖表共用 */
+const SYN_KINDS = ['銀行', '共同帳戶', '不動產'];   // 後端沒有逐檔資料的資產：用資產負債表月底值湊成一個「合計」標的
+const TGT_KIND_ORDER = ['股票', '虛擬貨幣', '銀行', '共同帳戶', '不動產', '負債'];
 function targetList(R){
-  const TD0 = R.targetDetail, prop = R.balance && R.balance.rows && R.balance.rows['不動產'];
-  const TD = TD0 && !TD0.error && TD0.kinds && prop
-    ? Object.assign({}, TD0, { kinds: Object.assign({}, TD0.kinds, { '不動產': { targets: [{ owner: '合計', name: '不動產', rate: null, inList: true, values: prop }], bucket: { used: false, values: [] } } }) })
-    : TD0;
+  const TD0 = R.targetDetail, B = R.balance && R.balance.rows;
+  let TD = TD0;
+  if (TD0 && !TD0.error && TD0.kinds && B) {
+    const add = {};
+    SYN_KINDS.forEach(k => {
+      const v = B[k];
+      if (!v || (k === '共同帳戶' && !v.some(x => typeof x === 'number' && x !== 0))) return;
+      add[k] = { targets: [{ owner: '合計', name: k, rate: null, inList: true, values: v }], bucket: { used: false, values: [] } };
+    });
+    TD = Object.assign({}, TD0, { kinds: Object.assign({}, TD0.kinds, add) });
+  }
   const all = [];
-  if (!TD || TD.error || !TD.kinds) return { TD, prop, all };
+  if (!TD || TD.error || !TD.kinds) return { TD, B, all };
   const ownerOrder = {'雙方':0, '倪端':1, '葉芳瑜':2};
-  ['股票', '虛擬貨幣', '不動產', '負債'].forEach(k => {
+  TGT_KIND_ORDER.forEach(k => {
     const K = TD.kinds[k]; if (!K) return;
     K.targets.slice().sort((a,b) => (ownerOrder[a.owner] ?? 9) - (ownerOrder[b.owner] ?? 9) || a.name.localeCompare(b.name))
       .forEach(c => all.push(Object.assign({}, c, {kind:k, key:k + '|' + c.owner + '|' + c.name + (c.sub ? '|' + c.sub : '')})));
   });
-  return { TD, prop, all };
+  return { TD, B, all };
 }
 
 function renderReport(){
@@ -1444,7 +1454,7 @@ function renderReport(){
   }
 
   if (mode === 'targets') {
-    const { TD, prop, all } = targetList(R);
+    const { TD, B: balRows, all } = targetList(R);
     if (!TD || TD.error || !TD.kinds) {
       $('monthTableNote').textContent = TD && TD.error ? '各標的計算失敗：' + TD.error : '後端還沒有回傳各標的資料，請確認 Code.gs 已重新部署。';
       return;
@@ -1453,7 +1463,7 @@ function renderReport(){
     const tcols = all.filter(c => !state.tgtHidden.has(c.key));
     if (!tcols.length){ $('monthTableNote').textContent = '請在「標的」選單裡至少勾選一個標的。'; return; }
     // 資產（股票、虛擬貨幣）跟負債分開加總、分開跟月報表核對
-    const GROUPS = [{name:'資產', kinds:['股票', '虛擬貨幣', '不動產']}, {name:'負債', kinds:['負債']}];
+    const GROUPS = [{name:'資產', kinds:['股票', '虛擬貨幣', '銀行', '共同帳戶', '不動產']}, {name:'負債', kinds:['負債']}];
     const monthRowOf = k => k === '負債' ? '總負債' : k;
     const pctTxt = r => typeof r === 'number' ? (r * 100).toFixed(1) + '%' : '0%';
     const isFull = k => all.some(c => c.kind === k) && all.filter(c => c.kind === k).every(c => !state.tgtHidden.has(c.key));
@@ -1467,7 +1477,7 @@ function renderReport(){
     const both = groups.length > 1;
     const mixedAsset = new Set(tcols.filter(c => c.kind !== '負債').map(c => c.kind)).size > 1;
     const rowsIdx = idx.filter(i => tcols.some(c => typeof c.values[i] === 'number'));
-    const subOf = c => c.kind === '不動產' ? '資產負債表月底值' : c.kind === '負債' ? c.owner + '・' + (c.sub || '負債') : c.owner + (mixedAsset && c.kind === '虛擬貨幣' ? '・幣' : '') + '・' + pctTxt(c.rate);
+    const subOf = c => SYN_KINDS.includes(c.kind) ? '資產負債表月底值' : c.kind === '負債' ? c.owner + '・' + (c.sub || '負債') : c.owner + (mixedAsset && c.kind === '虛擬貨幣' ? '・幣' : '') + '・' + pctTxt(c.rate);
     const headCells = [h('th', {text:'月份'}), h('th', {text:'狀態'})];
     groups.forEach(g => {
       g.cols.forEach(c => headCells.push(h('th', {class:'num', title: c.inList ? '' : (c.kind === '負債' ? '這筆負債不在「標的」清單裡' : '這個標的不在「標的」清單裡，報酬率當 0%')},
@@ -1477,6 +1487,10 @@ function renderReport(){
       if (g.reconcile) headCells.push(h('th', {class:'num', text: '月報表' + (both ? '（' + g.name + '）' : '')}), h('th', {class:'num', text: '差異' + (both ? '（' + g.name + '）' : '')}));
     });
     if (both) headCells.push(h('th', {class:'num'}, '已選淨值', h('br'), h('span', {class:'note', text:'資產合計－負債合計'})));
+    // 勾了「不動產」就多顯示它每月的現金支出（只有預估月份有，來源：計算未來的投資→不動產、撥款房貸的利息與本金）
+    const PF = R.propFlow, showPF = tcols.some(c => c.kind === '不動產') && PF && !PF.error && PF.total;
+    const pfCum = []; { let acc = 0; R.months.forEach((_, i) => { const v = PF && PF.total ? PF.total[i] : null; if (typeof v === 'number') acc += v; pfCum.push(typeof v === 'number' ? acc : null); }); }
+    if (showPF) [['自備款', '尾款等'], ['房貸利息', ''], ['房貸本金', ''], ['不動產支出', '當月合計'], ['累計支出', '預估起算']].forEach(([a, b]) => headCells.push(h('th', {class:'num'}, a, h('br'), h('span', {class:'note', text:b}))));
     t.append(h('thead', null, h('tr', null, ...headCells)));
     const tb = h('tbody');
     rowsIdx.forEach(i => {
@@ -1492,22 +1506,27 @@ function renderReport(){
         gsum[g.name] = sum;
         if (g.reconcile) {
           let mon = null;
-          g.fullKinds.forEach(k => { const r = R.rows[monthRowOf(k)] || (k === '不動產' ? prop : null); const v = r ? r[i] : null; if (typeof v === 'number') mon = (mon || 0) + v; });
+          g.fullKinds.forEach(k => { const r = R.rows[monthRowOf(k)] || (SYN_KINDS.includes(k) && balRows ? balRows[k] : null); const v = r ? r[i] : null; if (typeof v === 'number') mon = (mon || 0) + v; });
           const diff = typeof mon === 'number' ? sum - mon : null;
           const warn = typeof diff === 'number' && Math.abs(diff) > Math.max(1000, Math.abs(mon) * 0.005);
           cells.push(h('td', {class:'num', text: money(mon)}), h('td', {class:'num' + (warn ? ' neg' : ''), text: diff === null ? '–' : money(diff)}));
         }
       });
       if (both) { const net = (gsum['資產'] || 0) - (gsum['負債'] || 0); cells.push(h('td', {class:'num' + (net < 0 ? ' neg' : ''), style:'font-weight:700', text: money(net)})); }
+      if (showPF) {
+        const pv = [PF.invest[i], PF.interest[i], PF.principal[i], PF.total[i], pfCum[i]];
+        pv.forEach((v, k) => cells.push(h('td', {class:'num', style: k === 3 ? 'font-weight:700' : '', text: typeof v === 'number' ? (v ? money(v) : '0') : '–'})));
+      }
       tb.append(h('tr', null, ...cells));
     });
     t.append(tb);
     const anyAsset = groups.some(g => g.name === '資產'), anyLiab = groups.some(g => g.name === '負債');
     $('monthTableNote').textContent = `最新快照 ${TD.latestSnap}；實際＝當月最近一次快照的金額。` +
-      (anyAsset ? `資產預估＝每檔用自己的年報酬率每日複利，每月 ${TD.trigDay} 號加上「計算未來」裡指定到這個標的的投入（不動產是整體合計，含尾款與貸款撥款）；「月報表」是用加權平均報酬率套在整體，所以跟各標的合計會有小差距、且隨時間慢慢變大。` : '') +
+      (anyAsset ? `資產預估＝每檔用自己的年報酬率每日複利，每月 ${TD.trigDay} 號加上「計算未來」裡指定到這個標的的投入（銀行、共同帳戶、不動產是整體合計，已含尾款、利息與還款的影響）；「月報表」是用加權平均報酬率套在整體，所以跟各標的合計會有小差距、且隨時間慢慢變大。` : '') +
       (anyLiab ? '負債預估＝最新一次快照的金額，扣掉「計算未來」裡的還款，扣到 0 為止；某次快照沒填的負債當作 0，跟日報表一樣。' : '') +
       (groups.every(g => g.reconcile) ? '差異欄變紅（超過 0.5%）代表要檢查。' : '只勾選部分標的的那一組，不顯示跟月報表的核對；要核對請把那一組整組勾滿。') +
       (groups.length > 1 ? '已選淨值＝已選資產合計－已選負債合計，例如不動產＋房貸＝你實際擁有的部分（自有資金）。' : '') +
+      (showPF ? '不動產支出＝自備款（計算未來的「投資→不動產」）＋房貸利息＋房貸本金，都是從銀行付出的現金；貸款撥款直接付給建商，不算現金支出。只有預估月份有，實際月份沒有逐筆紀錄，顯示「–」。' : '') +
       '⚠＝不在「標的」清單裡。';
     return;
   }
