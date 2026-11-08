@@ -1377,9 +1377,18 @@ function renderReport(){
         extra.push({ label: name, vals, color: LINE_COLORS[k % LINE_COLORS.length] });
       });
     }
+    if (curMode === 'targets') {
+      const { all } = targetList(R), sel = all.filter(c => !state.tgtHidden.has(c.key));
+      const as = sel.filter(c => c.kind !== '負債'), ls = sel.filter(c => c.kind === '負債');
+      if (as.length && ls.length) {
+        const sumAt = (arr, i) => arr.reduce((t, c) => t + (typeof c.values[i] === 'number' ? c.values[i] : 0), 0);
+        const has = i => sel.some(c => typeof c.values[i] === 'number');
+        extra.unshift({ label: '已選淨值（資產－負債）', vals: R.months.map((_, i) => has(i) ? sumAt(as, i) - sumAt(ls, i) : null), color: '#111111', width: 3 });
+      }
+    }
     const estFlag = idx.map(i => get(L.status, i) === '預估');
     extra.forEach(x => datasets.push({ label: x.label, data: idx.map(i => typeof x.vals[i] === 'number' ? x.vals[i] : null),
-      borderColor: x.color, backgroundColor: x.color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: .2, spanGaps: true,
+      borderColor: x.color, backgroundColor: x.color, borderWidth: x.width || 2, pointRadius: 0, pointHoverRadius: 4, tension: .2, spanGaps: true,
       segment: { borderDash: c => estFlag[c.p1DataIndex] ? [6, 4] : undefined } }));
     if (!extra.length && !$('chartShowNet').checked && !(R.plan && $('chartShowPlan').checked)) datasets.unshift(...netDs);   // 沒有任何線時，還是顯示淨值
     $('chartExtraNote').textContent = extra.length ? `圖上另外畫出下方表格選的 ${extra.length} 條線（實線＝實際、虛線＝預估）` : '';
@@ -1467,17 +1476,20 @@ function renderReport(){
       headCells.push(h('th', {class:'num', text: (both ? g.name : (g.reconcile ? '各標的' : '已選')) + '合計'}));
       if (g.reconcile) headCells.push(h('th', {class:'num', text: '月報表' + (both ? '（' + g.name + '）' : '')}), h('th', {class:'num', text: '差異' + (both ? '（' + g.name + '）' : '')}));
     });
+    if (both) headCells.push(h('th', {class:'num'}, '已選淨值', h('br'), h('span', {class:'note', text:'資產合計－負債合計'})));
     t.append(h('thead', null, h('tr', null, ...headCells)));
     const tb = h('tbody');
     rowsIdx.forEach(i => {
       const st = get(L.status, i);
       const cells = [h('td', {text:R.months[i]}), h('td', null, h('span', {class:'badge' + (st === '預估' ? ' est' : ''), text: st || '–'}))];
+      const gsum = {};
       groups.forEach(g => {
         const vals = g.cols.map(c => c.values[i]);
         const bvals = g.buckets.map(x => x.b.values[i]);
         vals.concat(bvals).forEach(v => cells.push(h('td', {class:'num' + (typeof v === 'number' && v < 0 ? ' neg' : ''), text: money(v)})));
         const sum = vals.concat(bvals).reduce((s, v) => s + (typeof v === 'number' ? v : 0), 0);
         cells.push(h('td', {class:'num', text: money(sum)}));
+        gsum[g.name] = sum;
         if (g.reconcile) {
           let mon = null;
           g.fullKinds.forEach(k => { const r = R.rows[monthRowOf(k)] || (k === '不動產' ? prop : null); const v = r ? r[i] : null; if (typeof v === 'number') mon = (mon || 0) + v; });
@@ -1486,6 +1498,7 @@ function renderReport(){
           cells.push(h('td', {class:'num', text: money(mon)}), h('td', {class:'num' + (warn ? ' neg' : ''), text: diff === null ? '–' : money(diff)}));
         }
       });
+      if (both) { const net = (gsum['資產'] || 0) - (gsum['負債'] || 0); cells.push(h('td', {class:'num' + (net < 0 ? ' neg' : ''), style:'font-weight:700', text: money(net)})); }
       tb.append(h('tr', null, ...cells));
     });
     t.append(tb);
@@ -1494,6 +1507,7 @@ function renderReport(){
       (anyAsset ? `資產預估＝每檔用自己的年報酬率每日複利，每月 ${TD.trigDay} 號加上「計算未來」裡指定到這個標的的投入（不動產是整體合計，含尾款與貸款撥款）；「月報表」是用加權平均報酬率套在整體，所以跟各標的合計會有小差距、且隨時間慢慢變大。` : '') +
       (anyLiab ? '負債預估＝最新一次快照的金額，扣掉「計算未來」裡的還款，扣到 0 為止；某次快照沒填的負債當作 0，跟日報表一樣。' : '') +
       (groups.every(g => g.reconcile) ? '差異欄變紅（超過 0.5%）代表要檢查。' : '只勾選部分標的的那一組，不顯示跟月報表的核對；要核對請把那一組整組勾滿。') +
+      (groups.length > 1 ? '已選淨值＝已選資產合計－已選負債合計，例如不動產＋房貸＝你實際擁有的部分（自有資金）。' : '') +
       '⚠＝不在「標的」清單裡。';
     return;
   }
