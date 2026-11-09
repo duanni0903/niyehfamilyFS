@@ -104,6 +104,13 @@
   dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);width:min(460px,92vw)}
   dialog label{display:block;margin:10px 0 4px;font-weight:700}
   canvas{max-height:320px}
+  #stmtTable td.num.clk{cursor:pointer} #stmtTable td.num.clk:hover{background:rgba(80,120,200,.12)}
+  #stmtTable td.num.sel{outline:2px solid #3b6fd4;outline-offset:-2px;background:rgba(80,120,200,.16)}
+  #bkPanel{position:fixed;top:0;right:0;bottom:0;width:min(360px,92vw);background:var(--card,#fff);color:inherit;border-left:1px solid var(--line,#ccc);box-shadow:-4px 0 16px rgba(0,0,0,.18);z-index:50;overflow:auto;padding:14px 16px;font-size:14px}
+  #bkPanel[hidden]{display:none} #bkPanel h3{margin:0 0 2px;font-size:16px} #bkPanel .sub{color:#888;font-size:12px;margin-bottom:10px}
+  #bkPanel .x{float:right;border:0;background:none;font-size:22px;cursor:pointer;color:inherit}
+  #bkPanel table{width:100%;border-collapse:collapse} #bkPanel td{padding:5px 2px;border-bottom:1px solid rgba(128,128,128,.2)} #bkPanel td.n{text-align:right;white-space:nowrap}
+  #bkPanel tr.tt td{font-weight:700;border-top:2px solid rgba(128,128,128,.5)} #bkPanel .note{color:#888;font-size:12px;margin-top:10px}
 </style>
 </head>
 <body>
@@ -245,6 +252,7 @@
   </div>
   <div class="card">
     <div class="scroll"><table id="stmtTable"></table></div>
+    <aside id="bkPanel" hidden></aside>
     <p class="note" id="stmtNote"></p>
   </div>
 </section>
@@ -1595,6 +1603,33 @@ async function loadStatements(){
 $('btnStmtReload').onclick = loadStatements;
 $('stmtSel').onchange = () => state.stmts && renderStatement();
 $('stmtRange').onchange = () => state.stmts && renderStatement();
+function closeBreakdown(){ $('bkPanel').hidden = true; document.querySelectorAll('#stmtTable td.sel').forEach(e => e.classList.remove('sel')); }
+async function openBreakdown(label, ym, td){
+  document.querySelectorAll('#stmtTable td.sel').forEach(e => e.classList.remove('sel'));
+  td.classList.add('sel');
+  const P = $('bkPanel'); P.hidden = false;
+  const head = (sub) => [h('button', {class:'x', title:'關閉', text:'×', onclick:closeBreakdown}), h('h3', {text:label.trim()}), h('div', {class:'sub', text:ym + (sub || '')})];
+  P.replaceChildren(...head(), h('div', {class:'note', text:'計算中…'}));
+  let d;
+  try { d = await api('getBreakdown', { label: label.trim(), ym }); } catch(e){ d = { error: e.message }; }
+  if (P.hidden || !td.classList.contains('sel')) return;
+  const row = (name, v, cls) => h('tr', {class:cls || ''}, h('td', {text:name}), h('td', {class:'n' + (v < 0 ? ' neg' : ''), text:(cls === 'tt' || cls === 'op' ? money(v) : (v > 0 ? '+' : '') + money(v))}));
+  const tb = h('tbody');
+  if (!d || d.error) { P.replaceChildren(...head(), h('div', {class:'note', text:'讀取失敗：' + ((d && d.error) || '沒有回應') + '（若剛更新程式，請先重新部署後端）'})); return; }
+  if (d.kind === 'parts'){
+    d.parts.forEach(x => tb.append(h('tr', null, h('td', {text:x.name}), h('td', {class:'n', text:money(x.end)}), h('td', {class:'n' + (x.delta < 0 ? ' neg' : ''), text:(x.delta > 0 ? '+' : '') + money(x.delta)}))));
+    tb.append(h('tr', {class:'tt'}, h('td', {text:'合計'}), h('td', {class:'n', text:money(d.closing)}), h('td', {class:'n', text:(d.closing - d.opening > 0 ? '+' : '') + money(d.closing - d.opening)})));
+    P.replaceChildren(...head('　期末｜較上月'), h('table', null, tb), h('div', {class:'note', text:'上月底 ' + money(d.opening) + '。點各科目那一列的金額可看更細的組成。'}));
+  } else if (d.kind === 'none'){
+    P.replaceChildren(...head(), h('div', {class:'note', text:d.note}));
+  } else {
+    tb.append(row('上月底餘額', d.opening, 'op'));
+    (d.items || []).forEach(x => tb.append(row(x.name, x.amt)));
+    if (d.kind === 'actual') tb.append(row('本月變動（期末−期初）', d.closing - d.opening));
+    tb.append(row('本月底餘額', d.closing, 'tt'));
+    P.replaceChildren(...head(d.kind === 'actual' ? '（實際）' : '（預估）'), h('table', null, tb), d.note ? h('div', {class:'note', text:d.note}) : '');
+  }
+}
 function renderStatement(){
   const key = $('stmtSel').value, S = state.stmts[key], n = S.months.length;
   let idx = [...Array(n).keys()];
@@ -1605,6 +1640,7 @@ function renderStatement(){
     const start = Math.max(0, last - 11), end = Math.min(n - 1, last + 3);
     idx = idx.filter(i => i >= start && i <= end);
   }
+  closeBreakdown();
   const t = $('stmtTable'); t.replaceChildren();
   t.append(h('thead', null,
     h('tr', null, h('th', {text:'項目'}), ...idx.map(i => h('th', {class:'num', text:S.months[i]}))),
@@ -1621,8 +1657,9 @@ function renderStatement(){
       tr.append(h('td', {class:'lab' + (tot ? ' tot' : ''), text:r.label.trim()}));
       idx.forEach(i => {
         const v = r.values[i];
-        tr.append(h('td', {class:'num' + (tot ? ' tot' : '') + (typeof v === 'number' && v < 0 && !isPct(r.label) ? ' neg' : ''),
-          text: isPct(r.label) ? pct(v) : money(v)}));
+        const clk = !isPct(r.label) && typeof v === 'number';
+        tr.append(h('td', {class:'num' + (clk ? ' clk' : '') + (tot ? ' tot' : '') + (typeof v === 'number' && v < 0 && !isPct(r.label) ? ' neg' : ''),
+          text: isPct(r.label) ? pct(v) : money(v), onclick: clk && key === 'balanceSheet' ? ev => openBreakdown(r.label, S.months[i], ev.currentTarget) : null}));
       });
     }
     tb.append(tr);
