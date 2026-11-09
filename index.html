@@ -105,12 +105,18 @@
   dialog label{display:block;margin:10px 0 4px;font-weight:700}
   canvas{max-height:320px}
   #stmtTable td.num.clk{cursor:pointer} #stmtTable td.num.clk:hover{background:rgba(80,120,200,.12)}
-  #stmtTable td.num.sel{outline:2px solid #3b6fd4;outline-offset:-2px;background:rgba(80,120,200,.16)}
-  #bkPanel{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);box-sizing:border-box;overflow-x:hidden;background:var(--card,#fff);color:inherit;border-left:1px solid var(--line,#ccc);box-shadow:-4px 0 16px rgba(0,0,0,.18);z-index:50;overflow-y:auto;padding:14px 16px;font-size:14px}
-  #bkPanel[hidden]{display:none} #bkPanel h3{margin:0 0 2px;font-size:16px} #bkPanel .sub{color:#888;font-size:12px;margin-bottom:10px}
-  #bkPanel .x{float:right;border:0;background:none;font-size:22px;cursor:pointer;color:inherit}
-  #bkPanel table{width:100%;border-collapse:collapse} #bkPanel td{padding:5px 2px;border-bottom:1px solid rgba(128,128,128,.2)} #bkPanel td.n{text-align:right;white-space:nowrap}
-  #bkPanel tr.tt td{font-weight:700;border-top:2px solid rgba(128,128,128,.5)} #bkPanel td.it{padding-left:14px;word-break:break-all} #bkPanel td.n{padding-left:8px} #bkPanel tr.sec2 td{color:#888;font-size:12px;border-bottom:0} #bkPanel .eq{margin-top:10px;font-size:12px;color:#555;word-break:break-all} #bkPanel .note{color:#888;font-size:12px;margin-top:10px}
+  #stmtTable .colsel{background:rgba(255,200,60,.20)!important} #stmtTable th.colsel{background:rgba(255,200,60,.45)!important}
+  #stmtTable td.num.sel{outline:2px solid #3b6fd4;outline-offset:-2px;background:rgba(255,200,60,.5)!important}
+  #bkPanel{position:fixed;width:340px;max-width:92vw;box-sizing:border-box;background:var(--card,#fff);color:inherit;border:1px solid var(--line,#bbb);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);z-index:50;overflow:auto;max-height:90vh;padding:12px 14px;font-size:14px}
+  #bkPanel[hidden]{display:none} #bkPanel h3{margin:0 0 2px;font-size:16px} #bkPanel .sub{color:#888;font-size:12px;margin-bottom:8px}
+  #bkPanel .x{float:right;border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:inherit}
+  #bkPanel table{width:100%;border-collapse:collapse;table-layout:fixed}
+  #bkPanel col.c2{width:112px} #bkPanel td{padding:5px 2px;vertical-align:top}
+  #bkPanel td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;border-left:1px solid rgba(128,128,128,.35);padding-left:6px}
+  #bkPanel td.it{padding-left:14px;word-break:break-all}
+  #bkPanel tr.op td,#bkPanel tr.sec2 td{font-weight:600} #bkPanel tr.sec2 td{color:#888;font-size:12px;font-weight:400}
+  #bkPanel tr.tt td{font-weight:700;border-top:1px solid #444;border-bottom:3px double #444}
+  #bkPanel .neg{color:var(--neg,#c0392b)} #bkPanel .eq{margin-top:10px;font-size:11px;color:#666;word-break:break-all} #bkPanel .note{color:#888;font-size:12px;margin-top:10px}
 </style>
 </head>
 <body>
@@ -1055,7 +1061,6 @@ function addFutRow(d = {}){
   const invSel = tag(h('select'), 'invTarget');
   const invTd = h('td', null, invSel);
   function syncInv(){
-    const show = needsInvTarget(type.value, kind.value, into.value);
     invSel.disabled = !show;
     if (show) fillInvTargetOptions(invSel, invTargetKindField(type.value, kind.value, into.value), invSel.value || invCur, invTargetCat(type.value));
     else invSel.replaceChildren(h('option', {value:'', text:'–'}));
@@ -1603,36 +1608,55 @@ async function loadStatements(){
 $('btnStmtReload').onclick = loadStatements;
 $('stmtSel').onchange = () => state.stmts && renderStatement();
 $('stmtRange').onchange = () => state.stmts && renderStatement();
-function closeBreakdown(){ $('bkPanel').hidden = true; document.querySelectorAll('#stmtTable td.sel').forEach(e => e.classList.remove('sel')); }
-async function openBreakdown(label, ym, td){
-  document.querySelectorAll('#stmtTable td.sel').forEach(e => e.classList.remove('sel'));
+let bkCell = null;
+function bkPlace(){
+  const P = $('bkPanel'); if (P.hidden || !bkCell || !bkCell.isConnected) return;
+  const r = bkCell.getBoundingClientRect(), w = P.offsetWidth, ph = P.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+  let left = r.right + 6; if (left + w > vw - 8) left = r.left - w - 6;
+  left = Math.max(8, Math.min(left, vw - w - 8));
+  const top = Math.max(8, Math.min(r.top, vh - ph - 8));
+  P.style.left = left + 'px'; P.style.top = top + 'px';
+}
+function bkMark(td){
+  document.querySelectorAll('#stmtTable .colsel, #stmtTable td.sel').forEach(e => e.classList.remove('colsel', 'sel'));
+  bkCell = td; if (!td) return;
   td.classList.add('sel');
+  const idx = td.cellIndex;
+  document.querySelectorAll('#stmtTable tr').forEach(tr => { const c = tr.children[idx]; if (c && !c.colSpan || (c && c.colSpan === 1)) c.classList.add('colsel'); });
+}
+function closeBreakdown(){ $('bkPanel').hidden = true; bkMark(null); }
+window.addEventListener('resize', bkPlace);
+document.addEventListener('scroll', bkPlace, true);
+document.addEventListener('click', ev => { const P = $('bkPanel'); if (!P.hidden && !P.contains(ev.target) && !(ev.target.closest && ev.target.closest('#stmtTable td.clk'))) closeBreakdown(); });
+async function openBreakdown(label, ym, td){
+  bkMark(td);
   const P = $('bkPanel'); P.hidden = false;
   const head = (sub) => [h('button', {class:'x', title:'關閉', text:'×', onclick:closeBreakdown}), h('h3', {text:label.trim()}), h('div', {class:'sub', text:ym + (sub || '')})];
-  P.replaceChildren(...head(), h('div', {class:'note', text:'計算中…'}));
+  P.replaceChildren(...head(), h('div', {class:'note', text:'計算中…'})); bkPlace();
   let d;
   try { d = await api('getBreakdown', { label: label.trim(), ym }); } catch(e){ d = { error: e.message }; }
-  if (P.hidden || !td.classList.contains('sel')) return;
-  const row = (name, v, cls) => h('tr', {class:cls || ''}, h('td', {text:name}), h('td', {class:'n' + (v < 0 ? ' neg' : ''), text:(cls === 'tt' || cls === 'op' ? money(v) : (v > 0 ? '+' : '') + money(v))}));
+  if (P.hidden || bkCell !== td) return;
+  const amt = (v, cls) => h('td', {class:'n' + (v < 0 ? ' neg' : '') + (cls ? ' ' + cls : ''), text: money(v)});
+  const colg = () => h('colgroup', null, h('col'), h('col', {class:'c2'}));
   const tb = h('tbody');
-  if (!d || d.error) { P.replaceChildren(...head(), h('div', {class:'note', text:'讀取失敗：' + ((d && d.error) || '沒有回應') + '（若剛更新程式，請先重新部署後端）'})); return; }
+  const fin = (...nodes) => { P.replaceChildren(...head(d && d.kind === 'actual' ? '（實際）' : (d && d.kind === 'forecast' ? '（預估）' : '')), ...nodes.filter(x => x != null && x !== ''));  bkPlace(); };
+  if (!d || d.error) return fin(h('div', {class:'note', text:'讀取失敗：' + ((d && d.error) || '沒有回應') + '（若剛更新程式，請先重新部署後端）'}));
+  if (d.kind === 'none') return fin(h('div', {class:'note', text:d.note}));
   if (d.kind === 'parts'){
-    d.parts.forEach(x => tb.append(h('tr', null, h('td', {text:x.name}), h('td', {class:'n', text:money(x.end)}), h('td', {class:'n' + (x.delta < 0 ? ' neg' : ''), text:(x.delta > 0 ? '+' : '') + money(x.delta)}))));
-    tb.append(h('tr', {class:'tt'}, h('td', {text:'合計'}), h('td', {class:'n', text:money(d.closing)}), h('td', {class:'n', text:(d.closing - d.opening > 0 ? '+' : '') + money(d.closing - d.opening)})));
-    P.replaceChildren(...head('　期末｜較上月'), h('table', null, tb), h('div', {class:'note', text:'上月底 ' + money(d.opening) + '。點各科目那一列的金額可看更細的組成。'}));
-  } else if (d.kind === 'none'){
-    P.replaceChildren(...head(), h('div', {class:'note', text:d.note}));
-  } else {
-    const sg = v => (v < 0 ? ' − ' : ' + ') + money(Math.abs(v));
-    tb.append(h('tr', {class:'op'}, h('td', {text:'上期'}), h('td', {class:'n', text:money(d.opening)})));
-    tb.append(h('tr', {class:'sec2'}, h('td', {colspan:2, text:'這期'})));
-    (d.items || []).forEach(x => tb.append(h('tr', null, h('td', {class:'it', text:x.name}), h('td', {class:'n' + (x.amt < 0 ? ' neg' : ''), text:(x.amt > 0 ? '+' : '') + money(x.amt)}))));
-    if (d.kind === 'actual') tb.append(row('本月變動（期末−期初）', d.closing - d.opening));
-    tb.append(h('tr', {class:'tt'}, h('td', {text:'本期'}), h('td', {class:'n', text:money(d.closing)})));
-    const eq = money(d.opening) + (d.items || []).map(x => sg(x.amt)).join('') + ' = ' + money(d.closing);
-    P.replaceChildren(...head(d.kind === 'actual' ? '（實際）' : '（預估）'), h('table', null, tb),
-      d.kind === 'actual' ? '' : h('div', {class:'eq', text:'上期 + 金額… ＝ ' + eq}), d.note ? h('div', {class:'note', text:d.note}) : '');
+    tb.append(h('tr', {class:'sec2'}, h('td', {text:'科目'}), h('td', {class:'n', text:'期末'})));
+    d.parts.forEach(x => tb.append(h('tr', null, h('td', {class:'it', text:x.name + '（較上月 ' + (x.delta > 0 ? '+' : '') + money(x.delta) + '）'}), amt(x.end))));
+    tb.append(h('tr', {class:'tt'}, h('td', {text:'合計'}), amt(d.closing)));
+    return fin(h('table', null, colg(), tb), h('div', {class:'note', text:'上月底 ' + money(d.opening) + (d.note ? '。' + d.note : '。') + '點各科目那一列的金額可看更細的組成。'}));
   }
+  tb.append(h('tr', {class:'op'}, h('td', {text:'上期'}), amt(d.opening)));
+  tb.append(h('tr', {class:'sec2'}, h('td', {text:'這期'}), h('td', {class:'n'})));
+  (d.items || []).forEach(x => tb.append(h('tr', null, h('td', {class:'it', text:x.name}), amt(x.amt))));
+  if (d.kind === 'actual') tb.append(h('tr', null, h('td', {class:'it', text:'本月變動（期末−期初）'}), amt(d.closing - d.opening)));
+  tb.append(h('tr', {class:'tt'}, h('td', {text:'本期'}), amt(d.closing)));
+  const sg = v => (v < 0 ? ' − ' : ' + ') + money(Math.abs(v));
+  fin(h('table', null, colg(), tb),
+    d.kind === 'actual' ? null : h('div', {class:'eq', text:'上期 + 金額… ＝ ' + money(d.opening) + (d.items || []).map(x => sg(x.amt)).join('') + ' = ' + money(d.closing)}),
+    d.note ? h('div', {class:'note', text:d.note}) : null);
 }
 function renderStatement(){
   const key = $('stmtSel').value, S = state.stmts[key], n = S.months.length;
