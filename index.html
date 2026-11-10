@@ -509,7 +509,7 @@ function showTab(name){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
   if (name === 'report' || name === 'owners') loadReport();          // 先顯示暫存，再背景更新
-  if (name === 'statements'){ state.stmtScrolled = false; loadStatements(); }
+  if (name === 'statements'){ state.stmtScrolled = false; bk.visit++; loadStatements(); }
   if (name === 'targets' && !$('tgtBody').children.length) loadTargetsTab();
   if (name === 'future' && !state.futureLoaded) loadFuture();
   if (name === 'future') loadCutoff();
@@ -1627,13 +1627,34 @@ function closeBreakdown(){ $('bkPanel').hidden = true; bkMark(null); }
 window.addEventListener('resize', bkPlace);
 document.addEventListener('scroll', bkPlace, true);
 document.addEventListener('click', ev => { const P = $('bkPanel'); if (!P.hidden && !P.contains(ev.target) && !(ev.target.closest && ev.target.closest('#stmtTable td.clk'))) closeBreakdown(); });
-async function openBreakdown(label, ym, td){
-  bkMark(td);
+/* 明細暫存：進三表時在背景一次算好畫面上所有格子，點擊時直接顯示 */
+const bk = (() => { const c = cget('bkCache'); return { items: (c && c.items) || {}, pending: false, gen: null, visit: 0 }; })();
+const bkKey = (label, ym) => label.trim() + '|' + ym;
+async function prefetchBreakdowns(S, idx){
+  if (!S || !$('tab-statements').classList.contains('on')) return;   // 只在打開三表時才預先計算
+  const isPct = l => /率|占/.test(l);
+  const labels = S.rows.filter(r => !r.section && !isPct(r.label) && r.values.some(v => typeof v === 'number')).map(r => r.label.trim());
+  const yms = idx.map(i => S.months[i]).filter(m => /^\d{4}\/\d{2}$/.test(m));
+  const gen = bk.visit + '#' + yms.join(',');
+  if (!labels.length || !yms.length || bk.gen === gen) return;
+  bk.pending = true; bk.gen = gen;
+  try {
+    const r = await api('getBreakdowns', { yms, labels });
+    if (r && r.items){ Object.assign(bk.items, r.items); try { cset('bkCache', { items: bk.items }); } catch(e){} }
+  } catch(e){ bk.gen = null; }
+  finally { bk.pending = false; }
+  if (bkCell && !$('bkPanel').hidden && bkCell._bk) openBreakdown(bkCell._bk[0], bkCell._bk[1], bkCell, true);
+}
+async function openBreakdown(label, ym, td, refresh){
+  if (!refresh) bkMark(td);
+  td._bk = [label, ym];
   const P = $('bkPanel'); P.hidden = false;
-  const head = (sub) => [h('button', {class:'x', title:'關閉', text:'×', onclick:closeBreakdown}), h('h3', {text:label.trim()}), h('div', {class:'sub', text:ym + (sub || '')})];
-  P.replaceChildren(...head(), h('div', {class:'note', text:'計算中…'})); bkPlace();
-  let d;
-  try { d = await api('getBreakdown', { label: label.trim(), ym }); } catch(e){ d = { error: e.message }; }
+  const head = (sub) => [h('button', {class:'x', title:'關閉', text:'×', onclick:closeBreakdown}), h('h3', {text:label.trim()}), h('div', {class:'sub', text:ym + (sub || '') + (bk.pending ? '　資料更新中…' : '')})];
+  let d = bk.items[bkKey(label, ym)];
+  if (!d){
+    P.replaceChildren(...head(), h('div', {class:'note', text:'計算中…'})); bkPlace();
+    try { d = await api('getBreakdown', { label: label.trim(), ym }); if (d && !d.error) bk.items[bkKey(label, ym)] = d; } catch(e){ d = { error: e.message }; }
+  }
   if (P.hidden || bkCell !== td) return;
   const amt = (v, cls) => h('td', {class:'n' + (v < 0 ? ' neg' : '') + (cls ? ' ' + cls : ''), text: money(v)});
   const colg = () => h('colgroup', null, h('col'), h('col', {class:'c2'}));
@@ -1702,6 +1723,7 @@ function renderStatement(){
   });
   t.append(tb);
   $('stmtNote').textContent = STMT_NOTES[key];
+  if (key === 'balanceSheet') prefetchBreakdowns(S, idx);
   if (!state.stmtScrolled){
     requestAnimationFrame(() => {
       const th = t.querySelector('th.curcol'), box = t.parentElement;
