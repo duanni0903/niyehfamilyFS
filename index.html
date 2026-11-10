@@ -105,18 +105,18 @@
   dialog label{display:block;margin:10px 0 4px;font-weight:700}
   canvas{max-height:320px}
   #stmtTable td.num.clk{cursor:pointer} #stmtTable td.num.clk:hover{background:rgba(80,120,200,.12)}
-  #stmtTable .colsel{background:rgba(255,200,60,.20)!important} #stmtTable th.colsel{background:rgba(255,200,60,.45)!important}
-  #stmtTable td.num.sel{outline:2px solid #3b6fd4;outline-offset:-2px;background:rgba(255,200,60,.5)!important}
-  #bkPanel{position:fixed;width:340px;max-width:92vw;box-sizing:border-box;background:var(--card,#fff);color:inherit;border:1px solid var(--line,#bbb);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);z-index:50;overflow:auto;max-height:90vh;padding:12px 14px;font-size:14px}
-  #bkPanel[hidden]{display:none} #bkPanel h3{margin:0 0 2px;font-size:16px} #bkPanel .sub{color:#888;font-size:12px;margin-bottom:8px}
-  #bkPanel .x{float:right;border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:inherit}
+  #stmtTable .curcol{background:rgba(255,200,60,.22)!important} #stmtTable th.curcol{background:rgba(255,190,40,.6)!important;font-weight:700}
+  #stmtTable td.num.sel{outline:2px solid #3b6fd4;outline-offset:-2px}
+  #bkPanel{position:fixed;width:600px;max-width:94vw;box-sizing:border-box;background:var(--card,#fff);color:inherit;border:1px solid var(--line,#bbb);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);z-index:50;overflow:auto;max-height:92vh;padding:18px 22px;font-size:16px;line-height:1.5}
+  #bkPanel[hidden]{display:none} #bkPanel h3{margin:0 0 2px;font-size:20px} #bkPanel .sub{color:#888;font-size:13px;margin-bottom:12px}
+  #bkPanel .x{float:right;border:0;background:none;font-size:28px;line-height:1;cursor:pointer;color:inherit}
   #bkPanel table{width:100%;border-collapse:collapse;table-layout:fixed}
-  #bkPanel col.c2{width:112px} #bkPanel td{padding:5px 2px;vertical-align:top}
-  #bkPanel td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;border-left:1px solid rgba(128,128,128,.35);padding-left:6px}
-  #bkPanel td.it{padding-left:14px;word-break:break-all}
+  #bkPanel col.c2{width:170px} #bkPanel td{padding:8px 4px;vertical-align:top;border-bottom:1px solid rgba(128,128,128,.18)}
+  #bkPanel td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;border-left:1px solid rgba(128,128,128,.35);padding-left:10px}
+  #bkPanel td.it{padding-left:20px;word-break:break-all}
   #bkPanel tr.op td,#bkPanel tr.sec2 td{font-weight:600} #bkPanel tr.sec2 td{color:#888;font-size:12px;font-weight:400}
   #bkPanel tr.tt td{font-weight:700;border-top:1px solid #444;border-bottom:3px double #444}
-  #bkPanel .neg{color:var(--neg,#c0392b)} #bkPanel .eq{margin-top:10px;font-size:11px;color:#666;word-break:break-all} #bkPanel .note{color:#888;font-size:12px;margin-top:10px}
+  #bkPanel .neg{color:var(--neg,#c0392b)} #bkPanel .eq{margin-top:14px;font-size:13px;color:#666;word-break:break-all} #bkPanel .note{color:#888;font-size:13px;margin-top:10px}
 </style>
 </head>
 <body>
@@ -1618,11 +1618,8 @@ function bkPlace(){
   P.style.left = left + 'px'; P.style.top = top + 'px';
 }
 function bkMark(td){
-  document.querySelectorAll('#stmtTable .colsel, #stmtTable td.sel').forEach(e => e.classList.remove('colsel', 'sel'));
-  bkCell = td; if (!td) return;
-  td.classList.add('sel');
-  const idx = td.cellIndex;
-  document.querySelectorAll('#stmtTable tr').forEach(tr => { const c = tr.children[idx]; if (c && !c.colSpan || (c && c.colSpan === 1)) c.classList.add('colsel'); });
+  document.querySelectorAll('#stmtTable td.sel').forEach(e => e.classList.remove('sel'));
+  bkCell = td; if (td) td.classList.add('sel');
 }
 function closeBreakdown(){ $('bkPanel').hidden = true; bkMark(null); }
 window.addEventListener('resize', bkPlace);
@@ -1669,10 +1666,11 @@ function renderStatement(){
     idx = idx.filter(i => i >= start && i <= end);
   }
   closeBreakdown();
+  const now = new Date(), curYM = now.getFullYear() + '/' + String(now.getMonth() + 1).padStart(2, '0');
   const t = $('stmtTable'); t.replaceChildren();
   t.append(h('thead', null,
-    h('tr', null, h('th', {text:'項目'}), ...idx.map(i => h('th', {class:'num', text:S.months[i]}))),
-    h('tr', null, h('th', {text:'狀態'}), ...idx.map(i => h('th', {class:'num', text:S.status[i] || '–'})))));
+    h('tr', null, h('th', {text:'項目'}), ...idx.map(i => h('th', {class:'num' + (S.months[i] === curYM ? ' curcol' : ''), text:S.months[i] + (S.months[i] === curYM ? '（本月）' : '')}))),
+    h('tr', null, h('th', {text:'狀態'}), ...idx.map(i => h('th', {class:'num' + (S.months[i] === curYM ? ' curcol' : ''), text:S.status[i] || '–'})))));
   const tb = h('tbody');
   const isPct = l => /率|占/.test(l);
   const isTotal = l => /合計|總計|淨增減|淨現金流|期初|期末|本期損益|淨值（|負債＋淨值|^現金及約當現金$/.test(l);
@@ -1686,7 +1684,7 @@ function renderStatement(){
       idx.forEach(i => {
         const v = r.values[i];
         const clk = !isPct(r.label) && typeof v === 'number';
-        tr.append(h('td', {class:'num' + (clk ? ' clk' : '') + (tot ? ' tot' : '') + (typeof v === 'number' && v < 0 && !isPct(r.label) ? ' neg' : ''),
+        tr.append(h('td', {class:'num' + (S.months[i] === curYM ? ' curcol' : '') + (clk ? ' clk' : '') + (tot ? ' tot' : '') + (typeof v === 'number' && v < 0 && !isPct(r.label) ? ' neg' : ''),
           text: isPct(r.label) ? pct(v) : money(v), onclick: clk && key === 'balanceSheet' ? ev => openBreakdown(r.label, S.months[i], ev.currentTarget) : null}));
       });
     }
