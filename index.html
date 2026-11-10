@@ -115,6 +115,7 @@
   #bkPanel td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;border-left:1px solid rgba(128,128,128,.35);padding-left:10px}
   #bkPanel td.it{padding-left:20px;word-break:break-all}
   #bkPanel tr.op td,#bkPanel tr.sec2 td{font-weight:600} #bkPanel tr.sec2 td{color:#888;font-size:12px;font-weight:400}
+  #bkPanel tr.grp td{font-weight:600;background:rgba(128,128,128,.10)} #bkPanel td.it2{padding-left:30px;color:#444} #bkPanel td.sub{font-weight:600}
   #bkPanel tr.tt td{font-weight:700;border-top:1px solid #444;border-bottom:3px double #444}
   #bkPanel .neg{color:var(--neg,#c0392b)} #bkPanel .eq{margin-top:14px;font-size:13px;color:#666;word-break:break-all} #bkPanel .note{color:#888;font-size:13px;margin-top:10px}
 </style>
@@ -508,7 +509,7 @@ function showTab(name){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
   document.querySelectorAll('main > section').forEach(s => s.classList.toggle('on', s.id === 'tab-' + name));
   if (name === 'report' || name === 'owners') loadReport();          // 先顯示暫存，再背景更新
-  if (name === 'statements') loadStatements();
+  if (name === 'statements'){ state.stmtScrolled = false; loadStatements(); }
   if (name === 'targets' && !$('tgtBody').children.length) loadTargetsTab();
   if (name === 'future' && !state.futureLoaded) loadFuture();
   if (name === 'future') loadCutoff();
@@ -1061,6 +1062,7 @@ function addFutRow(d = {}){
   const invSel = tag(h('select'), 'invTarget');
   const invTd = h('td', null, invSel);
   function syncInv(){
+    const show = needsInvTarget(type.value, kind.value, into.value);
     invSel.disabled = !show;
     if (show) fillInvTargetOptions(invSel, invTargetKindField(type.value, kind.value, into.value), invSel.value || invCur, invTargetCat(type.value));
     else invSel.replaceChildren(h('option', {value:'', text:'–'}));
@@ -1606,8 +1608,8 @@ async function loadStatements(){
   if (S) applyStatements(S); else if (!c) $('stmtInfo').textContent = '';
 }
 $('btnStmtReload').onclick = loadStatements;
-$('stmtSel').onchange = () => state.stmts && renderStatement();
-$('stmtRange').onchange = () => state.stmts && renderStatement();
+$('stmtSel').onchange = () => { state.stmtScrolled = false; state.stmts && renderStatement(); };
+$('stmtRange').onchange = () => { state.stmtScrolled = false; state.stmts && renderStatement(); };
 let bkCell = null;
 function bkPlace(){
   const P = $('bkPanel'); if (P.hidden || !bkCell || !bkCell.isConnected) return;
@@ -1647,7 +1649,15 @@ async function openBreakdown(label, ym, td){
   }
   tb.append(h('tr', {class:'op'}, h('td', {text:'上期'}), amt(d.opening)));
   tb.append(h('tr', {class:'sec2'}, h('td', {text:'這期'}), h('td', {class:'n'})));
-  (d.items || []).forEach(x => tb.append(h('tr', null, h('td', {class:'it', text:x.name}), amt(x.amt))));
+  let lastG = null;
+  (d.items || []).forEach(x => {
+    if (x.group && x.group !== lastG){
+      lastG = x.group;
+      const sub = d.items.filter(y => y.group === x.group).reduce((a, y) => a + y.amt, 0);
+      tb.append(h('tr', {class:'grp'}, h('td', {text:x.group}), amt(sub, 'sub')));
+    }
+    tb.append(h('tr', null, h('td', {class:'it' + (x.group ? ' it2' : ''), text:x.name}), amt(x.amt)));
+  });
   if (d.kind === 'actual') tb.append(h('tr', null, h('td', {class:'it', text:'本月變動（期末−期初）'}), amt(d.closing - d.opening)));
   tb.append(h('tr', {class:'tt'}, h('td', {text:'本期'}), amt(d.closing)));
   const sg = v => (v < 0 ? ' − ' : ' + ') + money(Math.abs(v));
@@ -1692,6 +1702,12 @@ function renderStatement(){
   });
   t.append(tb);
   $('stmtNote').textContent = STMT_NOTES[key];
+  if (!state.stmtScrolled){
+    requestAnimationFrame(() => {
+      const th = t.querySelector('th.curcol'), box = t.parentElement;
+      if (th && box){ box.scrollLeft = Math.max(0, th.offsetLeft - (box.clientWidth - th.offsetWidth) / 2); state.stmtScrolled = true; }
+    });
+  }
 }
 
 /* ---------- 標的：建立與管理 ---------- */
@@ -1733,7 +1749,7 @@ function addTargetRow(t = {}){
   const owner = select(OWNERS, t.owner);
   const kind = h('select'); const unit = h('select');
   const name = h('input', {type:'text', value:t.name || '', placeholder:'標的名稱'});
-  const rate = h('input', {type:'number', step:'any', value:(t.rate === null || t.rate === undefined || t.rate === '') ? '' : t.rate * 100, placeholder:'例：5'});
+  const rate = h('input', {type:'number', step:'any', value:(t.rate === null || t.rate === undefined || t.rate === '') ? '' : Number((t.rate * 100).toPrecision(10)), placeholder:'例：5'});
   const status = select(['使用中','停用'], t.status);
   const tr = h('tr', {class: 'row-f'});
   const syncKind = keep => { kind.replaceChildren(...KINDS_BY_CAT[cat.value].map(o => h('option',{value:o,text:o}))); if (keep && KINDS_BY_CAT[cat.value].includes(keep)) kind.value = keep; };
